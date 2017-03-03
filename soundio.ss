@@ -23,7 +23,7 @@
   (struct
     (name (* char))
     (channel_count int)
-    (channels (array int 24))))
+    (channels (array 24 int))))
 
 (define-ftype SoundIoOutStream
   (struct
@@ -33,11 +33,11 @@
     (layout SoundIoChannelLayout)
     (software_latency double)
     (userdata void*)
-    (write_callback (* (function ((* SoundIoOutStream) int int) void)))
+    (write_callback void*)
     (underflow_callback void*)
     (error_callback void*)
     (name (* char))
-    (non_terminal_hint bool)
+    (non_terminal_hint boolean)
     (bytes_per_frame int)
     (bytes_per_sample int)
     (layout_error int)))
@@ -66,13 +66,19 @@
   (foreign-procedure "soundio_get_output_device" (void* int) void*))
 
 (define soundio_outstream_create
-  (foreign-procedure "soundio_outstream_create" (void*) void*))
+  (foreign-procedure "soundio_outstream_create" (void*) (* SoundIoOutStream)))
 
 (define soundio_outstream_begin_write
   (foreign-procedure "soundio_outstream_begin_write" (void* void* (* int)) int))
 
 (define soundio_outstream_end_write
   (foreign-procedure "soundio_outstream_end_write" (void*) int))
+
+(define soundio_outstream_open
+  (foreign-procedure "soundio_outstream_open" (void*) int))
+
+(define soundio_outstream_start
+  (foreign-procedure "soundio_outstream_start" (void*) int))
 
 ;;;
 
@@ -90,28 +96,36 @@
                  (let ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
                        [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
                        [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
-                       [areas (make-ftype-pointer (array SoundIoChannelArea)
-                                                  (foreign-alloc
-                                                   (ftype-sizeof SoundIoChannelArea)))])
+                       [areas (make-ftype-pointer
+                               void*
+                               (foreign-alloc (ftype-sizeof void*)))])
                    (let batch ([frames-left frame-count-max])
                      (let ([frame-count frames-left]
                            [err (soundio_outstream_begin_write
                                  stream
-                                 (ftype-pointer-address (make-ftype-pointer (* SoundIoChannelArea) areas))
+                                 (ftype-pointer-address areas)
                                  (ftype-pointer-address (make-ftype-pointer int frame-count)))])
                        (if (and (= err 0) (not (= frame-count 0)))
-                           (begin
-                             (do ([frame 0 (+ frame 1)])
-                                 ((= frame frame-count) 0)
-                               (do ([channel 0 (+ channel 1)])
-                                   ((= channel channel-count) 0)
-                                 (let ([ptr (+ (ftype-ref SoundIoChannelArea (channel ptr) areas)
-                                               ())]))
-                                 ))))))
-                   (foreign-free (ftype-pointer-address areas))))
+                           (do ([frame 0 (+ frame 1)])
+                               ((= frame frame-count) 0)
+                             (do ([channel 0 (+ channel 1)])
+                                 ((= channel channel-count) 0)
+                               (let ([ptr (+ (ftype-&ref SoundIoChannelArea (ptr) areas channel)
+                                             (* (ftype-&ref SoundIoChannelArea (step) areas channel)
+                                                frame))])
+                                 (foreign-set! float ptr 0 (random 1.0))
+                                 )))))
+                     (if (< 0 (- frames-left frame-count))
+                         (batch (- frames-left frame-count)))))
+                 )
                ((* SoundIoOutStream) int int)
                void)))
     (lock-object code)
     (foreign-callable-entry-point code)))
 
-(ftype-set! SoundIoOutStream (write_callback) stream write-callback)
+(ftype-set! SoundIoOutStream (write_callback)
+            stream
+            write-callback)
+
+(soundio_outstream_open (ftype-pointer-address stream))
+(soundio_outstream_start (ftype-pointer-address stream))
