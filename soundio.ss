@@ -92,13 +92,14 @@
 
   [SoundIoChannelArea
    (struct
-     [ptr (* char)]
+     [ptr (* float)] ; REVIEW char
      [step int])]
 
   [SoundIoSampleRateRange
    (struct
      [min int]
      [max int])]
+  [*SoundIoChannelArea (* SoundIoChannelArea)]
   [**SoundIoChannelArea (* (* SoundIoChannelArea))]
   )
 
@@ -127,7 +128,7 @@
 (define soundio_outstream_begin_write
   (foreign-procedure "soundio_outstream_begin_write" ((* SoundIoOutStream) ; outstream
                                                       ;; **SoundIoChannelArea ; areas
-                                                      void*
+                                                      (* *SoundIoChannelArea)
                                                       (* int)) ; frame_count
                      ErrorCode))
 
@@ -140,6 +141,18 @@
 (define soundio_outstream_start
   (foreign-procedure "soundio_outstream_start" ((* SoundIoOutStream)) ErrorCode))
 
+(define soundio_wait_events
+  (foreign-procedure "soundio_wait_events" ((* SoundIo)) void))
+
+(define soundio_outstream_destroy
+  (foreign-procedure "soundio_outstream_destroy" ((* SoundIoOutStream)) void))
+
+(define soundio_device_unref
+  (foreign-procedure "soundio_device_unref" ((* SoundIoDevice)) void))
+
+(define soundio_destroy
+  (foreign-procedure "soundio_destroy" ((* SoundIo)) void))
+
 ;;;
 
 (soundio_version_string)
@@ -150,36 +163,56 @@
 (define device (soundio_get_output_device soundio out-idx))
 (define stream (soundio_outstream_create device))
 
+(define pi 3.1415926535)
+(define two-pi (* 2 pi))
+(define pitch 440.0)
+(define radians-per-second (* pitch two-pi))
+(define seconds-offset 0.0)
+
 (define write-callback
   (let ((code (foreign-callable
                (lambda (stream frame-count-min frame-count-max)
-                 (void)
-                 #|
-                 (let ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
-                       [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
-                       [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
-                       [areas (make-ftype-pointer
-                               void*
-                               (foreign-alloc (ftype-sizeof void*)))])
+                 (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
+                        [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
+                        [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
+                        [seconds-per-frame (/ 1.0 sample-rate)]
+                        [areas (make-ftype-pointer
+                                *SoundIoChannelArea
+                                (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
+                        [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
                    (let batch ([frames-left frame-count-max])
-                     (let ([frame-count frames-left]
-                           [err (soundio_outstream_begin_write
+                     (ftype-set! int () frame-count frames-left)
+                     (let ([err (soundio_outstream_begin_write
                                  stream
-                                 (ftype-pointer-address areas)
-                                 (ftype-pointer-address (make-ftype-pointer int frame-count)))])
-                       (if (and (= err 0) (not (= frame-count 0)))
-                           (do ([frame 0 (+ frame 1)])
-                               ((= frame frame-count) 0)
-                             (do ([channel 0 (+ channel 1)])
-                                 ((= channel channel-count) 0)
-                               (let ([ptr (+ (ftype-&ref SoundIoChannelArea (ptr) areas channel)
-                                             (* (ftype-&ref SoundIoChannelArea (step) areas channel)
-                                                frame))])
-                                 (foreign-set! float ptr 0 (random 1.0))
-                                 )))))
-                     (if (< 0 (- frames-left frame-count))
-                         (batch (- frames-left frame-count)))))
-                 |#
+                                 areas
+                                 frame-count)])
+                       (if (not (= 0 err))
+                           (exit))
+                       (let* ([fc (ftype-ref int () frame-count)]
+                              [areas (ftype-ref *SoundIoChannelArea () areas)])
+                         (if (not (= fc 0))
+                             (begin
+                               (do ([frame 0 (+ frame 1)])
+                                   ((= frame fc) 0)
+                                 (do ([channel 0 (+ channel 1)])
+                                     ((= channel channel-count) 0)
+                                   (let* ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
+                                          [step (ftype-ref SoundIoChannelArea (step) areas channel)]
+                                          [sample (* 0.2
+                                                     (sin (* (+ seconds-offset
+                                                                (* frame seconds-per-frame))
+                                                             radians-per-second)))])
+                                     (ftype-set! float () ptr (* (/ step (ftype-sizeof float))
+                                                                 frame)
+                                                 ;; (- (random 2.0) 1.0)
+                                                 sample
+                                                 ))))
+                               (set! seconds-offset (+ seconds-offset (* fc seconds-per-frame)))
+                               (if (not (= 0 (soundio_outstream_end_write stream)))
+                                   (exit))))
+                         (if (< 0 (- frames-left fc))
+                             (batch (- frames-left fc))))))
+                   (foreign-free (ftype-pointer-address frame-count)))
                  )
                ((* SoundIoOutStream) int int)
                void)))
@@ -191,5 +224,15 @@
             stream
             write-callback)
 
+;; TODO ensure sample type
+
 (soundio_outstream_open stream)
 (soundio_outstream_start stream)
+
+(let loop ()
+  (soundio_wait_events soundio)
+  (loop))
+
+(soundio_outstream_destroy stream)
+(soundio_device_unref device)
+(soundio_destroy soundio)
