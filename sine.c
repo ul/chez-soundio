@@ -34,7 +34,7 @@ static void write_callback(struct SoundIoOutStream *outstream,
         float pitch = 440.0f;
         for (int frame = 0; frame < frame_count; frame += 1) {
           float sample = 0.0f;
-          int k = 1100;
+          int k = 500;
           float t = seconds_offset + frame * seconds_per_frame;
           for (int i = 0; i < k; i++) {
             sample += sin(t * TWOPI * (pitch + i));
@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     outstream->format = SoundIoFormatFloat32NE;
-    outstream->sample_rate = 44100;
+    /* outstream->sample_rate = 44100; */
     outstream->write_callback = write_callback;
     outstream->underflow_callback = underflow_callback;
     /* outstream->software_latency = 0.025f; */

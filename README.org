@@ -1,11 +1,17 @@
 * SoundIo
 
   [[https://github.com/andrewrk/libsoundio][libsoundio]] [[https://github.com/cisco/ChezScheme][Chez Scheme]] wrapper.
-  Versions libsoundio 1.1.0 and Chez Scheme 9.4.1
+
+  Status: FFI is complete, high-level wrappers are alpha.
+
+  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.4.1
+
   Chez Scheme 9.4 ta6osx from Homebrew fails badly with this code by SIGILL
   (Illegal instruction) 4
 
 * Usage
+
+  TODO, see [[Example]] for now.
 
 * FFI
 
@@ -34,6 +40,8 @@
    Defining foreign types (ftypes) for interaction with C code gives runtime checks and
    more clarity. To have mutually recursive ftypes we will describe them one by
    one and then put into the single =define-ftype=.
+
+   TODO Auto-generate most of this from =soundio.h=
 
 *** Enums
 
@@ -377,7 +385,7 @@
   Next step is to encapsulate all initialization routines.
   TODO do I use =error= properly?
 
-  As an experiment, let's from the end to the beginning. Ultimate goal of
+  As an experiment, let's go from the end to the beginning. Ultimate goal of
   initialization is to have open output audio stream on default device. The
   stream should have =write_callback= (and =underflow_callback= too; though it's
   optional, it's always a good idea to be notified about underflows) assigned
@@ -416,12 +424,12 @@
 
 #+NAME: set-stream-callbacks
 #+BEGIN_SRC scheme
-  (let ([write-callback (wrap-write-callback)]
-        [underflow-callback (wrap-overflow-callback)])
+  (let ([write-callback (wrap-write-callback write-callback)]
+        [underflow-callback (wrap-underflow-callback underflow-callback)])
     (let ([write-callback-pointer (make-ftype-pointer WriteCallback write-callback)]
           [underflow-callback-pointer (make-ftype-pointer UnderflowCallback underflow-callback)])
-      (ftype-set! SoundIoOutStream (write_callback) stream write-callback-pointer)
-      (ftype-set! SoundIoOutStream (underflow_callback) stream underflow-callback-pointer)
+      (ftype-set! SoundIoOutStream (write_callback) out-stream write-callback-pointer)
+      (ftype-set! SoundIoOutStream (underflow_callback) out-stream underflow-callback-pointer)
       <<try-open-stream>>
       ))
 #+END_SRC
@@ -467,7 +475,7 @@
       ))
 #+END_SRC
 
-  Now just wrap it into lambda =)
+  Now just wrap it into a lambda =)
 
 #+NAME: open-default-out-stream
 #+BEGIN_SRC scheme
@@ -509,10 +517,65 @@
       (unlock-ftype-pointer (soundio-underflow-callback-pointer soundio))))
 #+END_SRC
 
+  TODO Hey, this is complex stuff to be broke down and explained.
+
+#+NAME: wrap-write-callback
+#+BEGIN_SRC scheme
+  (define wrap-write-callback
+    (lambda (f)
+      (let ([timestamp 0])
+        (lambda (stream frame-count-min frame-count-max)
+          (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
+                 [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
+                 [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
+                 [seconds-per-sample (inexact (/ 1 sample-rate))]
+                 [areas (make-ftype-pointer
+                         *SoundIoChannelArea
+                         (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
+                 [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
+            (let batch ([frames-left frame-count-max])
+              (ftype-set! int () frame-count frames-left)
+              (let ([err (soundio_outstream_begin_write
+                          stream
+                          areas
+                          frame-count)])
+                (if (not (zero? err))
+                    (exit))
+                (let* ([fc (ftype-ref int () frame-count)]
+                       [areas (ftype-ref *SoundIoChannelArea () areas)])
+                  (if (not (zero? fc))
+                      (begin
+                        (do ([frame 0 (+ frame 1)])
+                            ((= frame fc) 0)
+                          (let ([t (* (+ timestamp frame) seconds-per-sample)])
+                            (do ([channel 0 (+ channel 1)])
+                                ((= channel channel-count) 0)
+                              (let ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
+                                    [step (ftype-ref SoundIoChannelArea (step) areas channel)])
+                                (foreign-set! 'float (ftype-pointer-address ptr) (* step frame) (f t channel))))))
+                        (set! timestamp (+ timestamp fc))
+                        (if (not (zero? (soundio_outstream_end_write stream)))
+                            (exit))))
+                  (if (< 0 (- frames-left fc))
+                      (batch (- frames-left fc))))))
+            (foreign-free (ftype-pointer-address frame-count)))))))
+#+END_SRC
+
+#+NAME: wrap-underflow-callback
+#+BEGIN_SRC scheme
+  (define wrap-underflow-callback
+    (lambda (f)
+      (lambda (stream)
+        (f))))
+#+END_SRC
+
 ** Summa
 
 #+NAME: high-level-wrapper
 #+BEGIN_SRC scheme
+  <<soundio-record>>
+  <<wrap-write-callback>>
+  <<wrap-underflow-callback>>
   <<open-default-out-stream>>
   <<start-stop-out-stream>>
   <<teardown-out-stream>>
@@ -541,9 +604,75 @@
 #+END_SRC
 
 * Example
-* Contribution
+
+  Let's play a bunch of sine waves (and test performance on the way).
+
+#+NAME: sine-example
+#+BEGIN_SRC scheme :tangle sine-example.ss :noweb yes :mkdirp yes :paddle no
+  (load "soundio.ss")
+
+  (define pi 3.1415926535)
+  (define two-pi (* 2 pi))
+
+  (define sine
+    (lambda (time freq)
+      (sin (* two-pi freq time))))
+
+  (define square
+    (lambda (time freq)
+      (let ([ft (* two-pi freq time)])
+        (+ (- (* 2 (floor ft))
+              (floor (* 2 ft)))
+           1))))
+
+  (define underflow-callback
+    (lambda ()
+      (display "undeflow!\n")))
+
+  (define write-callback
+    (lambda (time channel)
+      (let ([k 100]
+            [sample 0.0])
+        (do ([i 1 (+ i 1)])
+            ((= i k) 0)
+          (set! sample (+ sample
+                          ;; (- (random 2.0) 1.0)
+                          (sine time (+ 440.0 i))
+                          ;; (square time (+ 440.0 i))
+                          )))
+        (/ sample k))))
+
+  (define sio (open-default-out-stream write-callback underflow-callback))
+  (start-out-stream sio)
+#+END_SRC
+
+* License and Contribution
+
+  Contribution is more than welcome in any form. If you don't want to bother
+  youself dealing with org-mode (thouhg it worth trying!), just patch generated
+  files included in repo and make PR. I'll incorporate changes into org file
+  then.
+
+#+BEGIN_SRC text :tangle LICENSE
+ISC License
+
+Copyright (c) 2017, Ruslan Prokopchuk
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+#+END_SRC
+
 * Files :noexport:
-#+BEGIN_SRC scheme :tangle soundio-draft.ss :noweb yes :mkdirp yes :paddle no
+#+BEGIN_SRC scheme :tangle soundio.ss :noweb yes :mkdirp yes :paddle no
   (import (chezscheme))
   <<helpers>>
   <<ffi>>
