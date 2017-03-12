@@ -649,7 +649,7 @@
 * License and Contribution
 
   Contribution is more than welcome in any form. If you don't want to bother
-  youself dealing with org-mode (thouhg it worth trying!), just patch generated
+  youself dealing with org-mode (though it worth trying!), just patch generated
   files included in repo and make PR. I'll incorporate changes into org file
   then.
 
