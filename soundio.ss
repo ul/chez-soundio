@@ -1,78 +1,106 @@
+
 (import (chezscheme))
-
-(load-shared-object "libsoundio.dylib")
-
+(define unlock-ftype-pointer
+  (lambda (fptr)
+    (unlock-object
+     (foreign-callable-code-object
+      (ftype-pointer-address fptr)))))
+;; <ffi>
+;; <load-library>
+(case (machine-type)
+  [(i3nt ti3nt a6nt ta6nt) (load-shared-object "libsoundio.dll")]
+  [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libsoundio.dylib")]
+  [(i3le ti3le a6le ta6le) (load-shared-object "libsoundio.so")]
+  [else (error "soundio"
+               "don't know how libsoundio shared library file is called on this machine-type"
+               (machine-type))])
+;; </load-library>
+;; <ftypes>
 (define-ftype
-
-  ;; enums
+  ;; <ftype-enums>
   [SoundIoBackend int]
   [SoundIoChannelId int]
   [SoundIoFormat int]
   [SoundIoDeviceAim int]
-
-  ;; aliases
-  [ErrorCode int]
-  [Message (* char)]
-  [Name (* char)]
-
-  ;; callbacks
+  ;; </ftype-enums>
+  ;; <ftype-callbacks>
   [OnDeviceChangeCallback (function ((* SoundIo)) void)]
-  ;; FIXME Exception: invalid function-ftype argument type specifier ErrorCode
-  ;; [OnBackendDisconnectCallback (function ((* SoundIo) ErrorCode) void)]
   [OnBackendDisconnectCallback (function ((* SoundIo) int) void)]
   [OnEventsSignalCallback (function ((* SoundIo)) void)]
   [EmitRtprioWarningCallback (function () void)]
-  ;; [JackInfoCallback (function (Message) void)]
-  ;; [JackErrorCallback (function (Message) void)]
   [JackInfoCallback (function ((* char)) void)]
   [JackErrorCallback (function ((* char)) void)]
   [WriteCallback (function ((* SoundIoOutStream) int int) void)]
   [UnderflowCallback (function ((* SoundIoOutStream)) void)]
-  ;; [ErrorCallback (function ((* SoundIoOutStream) ErrorCode) void)]
+  [ReadCallback (function ((* SoundIoInStream) int int) void)]
+  [OverflowCallback (function ((* SoundIoInStream)) void)]
   [ErrorCallback (function ((* SoundIoOutStream) int) void)]
-
-  ;; structs
+  ;; </ftype-callbacks>
+  ;; <ftype-structs>
   [SoundIo
    (struct
-     [userdata void*] ; Optional. Put whatever you want here. Defaults to NULL.
-     [on_devices_change (* OnDeviceChangeCallback)] ; Optional callback.
-     [on_backend_disconnect (* OnBackendDisconnectCallback)] ; Optional callback.
-     [on_events_signal (* OnEventsSignalCallback)] ; Optional callback.
-     [current_backend SoundIoBackend] ; Read-only.
-     [app_name Name] ; Optional: Application name.
-     [emit_rtprio_warning (* EmitRtprioWarningCallback)] ; Optional: Real time priority warning.
-     [jack_info_callback (* JackInfoCallback)] ; Optional: JACK info callback.
-     [jack_error_callback (* JackErrorCallback)] ; Optional: JACK error callback.
-     )]
-
+    [userdata void*] ; Optional. Put whatever you want here. Defaults to NULL.
+    [on_devices_change (* OnDeviceChangeCallback)] ; Optional callback.
+    [on_backend_disconnect (* OnBackendDisconnectCallback)] ; Optional callback.
+    [on_events_signal (* OnEventsSignalCallback)] ; Optional callback.
+    [current_backend SoundIoBackend] ; Read-only.
+    [app_name (* char)] ; Optional: Application name.
+    [emit_rtprio_warning (* EmitRtprioWarningCallback)] ; Optional: Real time priority warning.
+    [jack_info_callback (* JackInfoCallback)] ; Optional: JACK info callback.
+    [jack_error_callback (* JackErrorCallback)] ; Optional: JACK error callback.
+    )]
+  [SoundIoChannelArea
+   (struct
+    [ptr (* char)]
+    [step int])]
+  ;; Useful for defining **SoundIoChannelArea in function ftype as (* *SoundIoChannelArea)
+  ;; nested * or its alias doesn't work:
+  ;; Exception: invalid (non-base) foreign-procedure argument ftype **SoundIoChannelArea
+  [*SoundIoChannelArea (* SoundIoChannelArea)]
   [SoundIoChannelLayout
    (struct
-     [name Name]
+     [name (* char)]
      [channel_count int]
+     ;; #define SOUNDIO_MAX_CHANNELS 24
+     ;; http://libsound.io/doc-1.1.0/soundio_8h.html#a1bf1282c5d903085916f8ed6af174bdd
      [channels (array 24 SoundIoChannelId)])]
-
   [SoundIoDevice
    (struct
-     [soundio (* SoundIo)]
-     [id Name]
-     [name Name]
-     [aim SoundIoDeviceAim]
-     [layouts (* SoundIoChannelLayout)]
-     [layout_count int]
-     [current_layout SoundIoChannelLayout]
-     [formats (* SoundIoFormat)]
-     [format_count int]
-     [current_format SoundIoFormat]
-     [sample_rates (* SoundIoSampleRateRange)]
-     [sample_rate_count int]
-     [sample_rate_current int]
-     [software_latency_min double]
-     [software_latency_max double]
-     [software_latency_current double]
-     [is_raw boolean]
-     [ref_count int]
-     [probe_error int])]
-
+    [soundio (* SoundIo)]
+    [id (* char)]
+    [name (* char)]
+    [aim SoundIoDeviceAim]
+    [layouts (* SoundIoChannelLayout)]
+    [layout_count int]
+    [current_layout SoundIoChannelLayout]
+    [formats (* SoundIoFormat)]
+    [format_count int]
+    [current_format SoundIoFormat]
+    [sample_rates (* SoundIoSampleRateRange)]
+    [sample_rate_count int]
+    [sample_rate_current int]
+    [software_latency_min double]
+    [software_latency_max double]
+    [software_latency_current double]
+    [is_raw boolean]
+    [ref_count int]
+    [probe_error int])]
+  [SoundIoInStream
+   (struct
+     [device (* SoundIoDevice)]
+     [format SoundIoFormat]
+     [sample_rate int]
+     [layout SoundIoChannelLayout]
+     [software_latency double]
+     [userdata void*]
+     [read_callback (* ReadCallback)]
+     [overflow_callback (* OverflowCallback)]
+     [error_callback (* ErrorCallback)]
+     [name (* char)]
+     [non_terminal_hint boolean]
+     [bytes_per_frame int]
+     [bytes_per_sample int]
+     [layout_error int])]
   [SoundIoOutStream
    (struct
      [device (* SoundIoDevice)]
@@ -84,155 +112,216 @@
      [write_callback (* WriteCallback)]
      [underflow_callback (* UnderflowCallback)]
      [error_callback (* ErrorCallback)]
-     [name Name]
+     [name (* char)]
      [non_terminal_hint boolean]
      [bytes_per_frame int]
      [bytes_per_sample int]
-     [layout_error ErrorCode])]
-
-  [SoundIoChannelArea
-   (struct
-     [ptr (* float)] ; REVIEW char
-     [step int])]
-
+     [layout_error int])]
   [SoundIoSampleRateRange
    (struct
-     [min int]
-     [max int])]
-  [*SoundIoChannelArea (* SoundIoChannelArea)]
-  [**SoundIoChannelArea (* (* SoundIoChannelArea))]
-  )
-
-(define soundio_version_string
-  (foreign-procedure "soundio_version_string" () string))
-
-(define soundio_create
-  (foreign-procedure "soundio_create" () (* SoundIo)))
-
-(define soundio_connect
-  (foreign-procedure "soundio_connect" ((* SoundIo)) ErrorCode))
-
-(define soundio_flush_events
-  (foreign-procedure "soundio_flush_events" ((* SoundIo)) void))
-
-(define soundio_default_output_device_index
-  (foreign-procedure "soundio_default_output_device_index" ((* SoundIo)) int))
-
-(define soundio_get_output_device
-  (foreign-procedure "soundio_get_output_device" ((* SoundIo) int) (* SoundIoDevice)))
-
-(define soundio_outstream_create
-  (foreign-procedure "soundio_outstream_create" ((* SoundIoDevice)) (* SoundIoOutStream)))
-
-;; FIXME Exception: invalid (non-base) foreign-procedure argument ftype **SoundIoChannelArea
-(define soundio_outstream_begin_write
-  (foreign-procedure "soundio_outstream_begin_write" ((* SoundIoOutStream) ; outstream
-                                                      ;; **SoundIoChannelArea ; areas
-                                                      (* *SoundIoChannelArea)
-                                                      (* int)) ; frame_count
-                     ErrorCode))
-
-(define soundio_outstream_end_write
-  (foreign-procedure "soundio_outstream_end_write" ((* SoundIoOutStream)) ErrorCode))
-
-(define soundio_outstream_open
-  (foreign-procedure "soundio_outstream_open" ((* SoundIoOutStream)) ErrorCode))
-
-(define soundio_outstream_start
-  (foreign-procedure "soundio_outstream_start" ((* SoundIoOutStream)) ErrorCode))
-
-(define soundio_wait_events
-  (foreign-procedure "soundio_wait_events" ((* SoundIo)) void))
-
-(define soundio_outstream_destroy
-  (foreign-procedure "soundio_outstream_destroy" ((* SoundIoOutStream)) void))
-
-(define soundio_device_unref
-  (foreign-procedure "soundio_device_unref" ((* SoundIoDevice)) void))
-
-(define soundio_destroy
-  (foreign-procedure "soundio_destroy" ((* SoundIo)) void))
-
-;;;
-
-(soundio_version_string)
-(define soundio (soundio_create))
-(soundio_connect soundio)
-(soundio_flush_events soundio)
-(define out-idx (soundio_default_output_device_index soundio))
-(define device (soundio_get_output_device soundio out-idx))
-(define stream (soundio_outstream_create device))
-
-(define pi 3.1415926535)
-(define two-pi (* 2 pi))
-(define pitch 440.0)
-(define radians-per-second (* pitch two-pi))
-(define seconds-offset 0.0)
-
-(define write-callback
-  (let ((code (foreign-callable
-               (lambda (stream frame-count-min frame-count-max)
-                 (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
-                        [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
-                        [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
-                        [seconds-per-frame (/ 1.0 sample-rate)]
-                        [areas (make-ftype-pointer
-                                *SoundIoChannelArea
-                                (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
-                        [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
-                   (let batch ([frames-left frame-count-max])
-                     (ftype-set! int () frame-count frames-left)
-                     (let ([err (soundio_outstream_begin_write
-                                 stream
-                                 areas
-                                 frame-count)])
-                       (if (not (= 0 err))
-                           (exit))
-                       (let* ([fc (ftype-ref int () frame-count)]
-                              [areas (ftype-ref *SoundIoChannelArea () areas)])
-                         (if (not (= fc 0))
-                             (begin
-                               (do ([frame 0 (+ frame 1)])
-                                   ((= frame fc) 0)
-                                 (do ([channel 0 (+ channel 1)])
-                                     ((= channel channel-count) 0)
-                                   (let* ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
-                                          [step (ftype-ref SoundIoChannelArea (step) areas channel)]
-                                          [sample (* 0.2
-                                                     (sin (* (+ seconds-offset
-                                                                (* frame seconds-per-frame))
-                                                             radians-per-second)))])
-                                     (ftype-set! float () ptr (* (/ step (ftype-sizeof float))
-                                                                 frame)
-                                                 ;; (- (random 2.0) 1.0)
-                                                 sample
-                                                 ))))
-                               (set! seconds-offset (+ seconds-offset (* fc seconds-per-frame)))
-                               (if (not (= 0 (soundio_outstream_end_write stream)))
-                                   (exit))))
-                         (if (< 0 (- frames-left fc))
-                             (batch (- frames-left fc))))))
-                   (foreign-free (ftype-pointer-address frame-count)))
-                 )
-               ((* SoundIoOutStream) int int)
-               void)))
-    (lock-object code)
-    (make-ftype-pointer WriteCallback (foreign-callable-entry-point code))
+    [min int]
+    [max int])]
+  [SoundIoOsMirroredMemory
+   (struct
+    [capacity size_t]
+    [address (* char)]
+    [priv void*])]
+  [SoundIoAtomicLong void*]
+  [SoundIoRingBuffer
+   (struct
+    [mem SoundIoOsMirroredMemory]
+    [write_offset SoundIoAtomicLong]
+    [read_offset SoundIoAtomicLong]
+    [capacity int])]
+  ;; </ftype-structs>
+)
+;; </ftypes>
+(define-syntax define-foreign-procedure
+  (lambda (x)
+    (syntax-case x ()
+      [(_ [name args result])
+       #`(define name
+           (foreign-procedure
+            #,(symbol->string (syntax->datum #'name))
+            args
+            result))]
+      [(_ e ...)
+       #'(begin
+           (define-foreign-procedure e)
+           ...)])))
+(define-foreign-procedure
+  [soundio_backend_count ((* SoundIo)) int]
+  [soundio_backend_name (SoundIoBackend) int]
+  [soundio_best_matching_channel_layout
+   ((* SoundIoChannelLayout) ; preferred_layouts
+    int                      ; preferred_layout_count
+    (* SoundIoChannelLayout) ; available_layouts
+    int                      ; available_layout_count
+    )
+   (* SoundIoChannelLayout)]
+  [soundio_channel_layout_builtin_count () int]
+  [soundio_channel_layout_detect_builtin ((* SoundIoChannelLayout)) boolean]
+  [soundio_channel_layout_equal ((* SoundIoChannelLayout) (* SoundIoChannelLayout)) boolean]
+  [soundio_channel_layout_find_channel ((* SoundIoChannelLayout) SoundIoChannelId) int]
+  [soundio_channel_layout_get_builtin (int) (* SoundIoChannelLayout)]
+  [soundio_channel_layout_get_default (#|channel_count|# int) (* SoundIoChannelLayout)]
+  [soundio_connect ((* SoundIo)) int]
+  [soundio_connect_backend ((* SoundIo) (* SoundIoBackend)) int]
+  [soundio_create () (* SoundIo)]
+  [soundio_default_input_device_index ((* SoundIo)) int]
+  [soundio_default_output_device_index ((* SoundIo)) int]
+  [soundio_destroy ((* SoundIo)) void]
+  [soundio_device_equal ((* SoundIoDevice) (* SoundIoDevice)) boolean]
+  [soundio_device_nearest_sample_rate ((* SoundIoDevice) int) int]
+  [soundio_device_ref ((* SoundIoDevice)) void]
+  [soundio_device_sort_channel_layouts ((* SoundIoDevice)) void]
+  [soundio_device_supports_format ((* SoundIoDevice) SoundIoFormat) boolean]
+  [soundio_device_supports_layout ((* SoundIoDevice) (* SoundIoChannelLayout)) boolean]
+  [soundio_device_supports_sample_rate ((* SoundIoDevice) int) boolean]
+  [soundio_device_unref ((* SoundIoDevice)) void]
+  [soundio_disconnect ((* SoundIo)) void]
+  [soundio_flush_events ((* SoundIo)) void]
+  [soundio_force_device_scan ((* SoundIo)) void]
+  [soundio_format_string (SoundIoFormat) string]
+  [soundio_get_backend ((* SoundIo) int) SoundIoBackend]
+  ;; [soundio_get_bytes_per_frame (SoundIoFormat #|channel_count|# int) int]
+  ;; [soundio_get_bytes_per_sample (SoundIoFormat) int]
+  ;; [soundio_get_bytes_per_second (SoundIoFormat #|channel_count|# int #|sample_rate|# int) int]
+  [soundio_get_channel_name (SoundIoChannelId) string]
+  [soundio_get_input_device ((* SoundIo) int) (* SoundIoDevice)]
+  [soundio_get_output_device ((* SoundIo) int) (* SoundIoDevice)]
+  [soundio_have_backend (SoundIoBackend) boolean]
+  [soundio_input_device_count ((* SoundIo)) int]
+  [soundio_instream_begin_read ((* SoundIoInStream) (* *SoundIoChannelArea) (* int)) int]
+  [soundio_instream_create ((* SoundIoDevice)) (* SoundIoInStream)]
+  [soundio_instream_destroy ((* SoundIoInStream)) void]
+  [soundio_instream_end_read ((* SoundIoInStream)) int]
+  [soundio_instream_get_latency ((* SoundIoInStream) (* double)) int]
+  [soundio_instream_open ((* SoundIoInStream)) int]
+  [soundio_instream_pause ((* SoundIoInStream) boolean) int]
+  [soundio_instream_start ((* SoundIoInStream)) int]
+  [soundio_output_device_count ((* SoundIo)) int]
+  [soundio_outstream_begin_write ((* SoundIoOutStream) (* *SoundIoChannelArea) (* int)) int]
+  [soundio_outstream_clear_buffer ((* SoundIoOutStream)) int]
+  [soundio_outstream_create ((* SoundIoDevice)) (* SoundIoOutStream)]
+  [soundio_outstream_destroy ((* SoundIoOutStream)) void]
+  [soundio_outstream_end_write ((* SoundIoOutStream)) int]
+  [soundio_outstream_get_latency ((* SoundIoOutStream) (* double)) int]
+  [soundio_outstream_open ((* SoundIoOutStream)) int]
+  [soundio_outstream_pause ((* SoundIoOutStream) boolean) int]
+  [soundio_outstream_start ((* SoundIoOutStream)) int]
+  [soundio_parse_channel_id ((* char) int) SoundIoChannelId]
+  [soundio_ring_buffer_advance_read_ptr ((* SoundIoRingBuffer) int) void]
+  [soundio_ring_buffer_advance_write_ptr ((* SoundIoRingBuffer) int) void]
+  [soundio_ring_buffer_capacity ((* SoundIoRingBuffer)) int]
+  [soundio_ring_buffer_clear ((* SoundIoRingBuffer)) void]
+  [soundio_ring_buffer_create ((* SoundIo) int) (* SoundIoRingBuffer)]
+  [soundio_ring_buffer_destroy ((* SoundIoRingBuffer)) void]
+  [soundio_ring_buffer_fill_count ((* SoundIoRingBuffer)) int]
+  [soundio_ring_buffer_free_count ((* SoundIoRingBuffer)) int]
+  [soundio_ring_buffer_read_ptr ((* SoundIoRingBuffer)) (* char)]
+  [soundio_ring_buffer_write_ptr ((* SoundIoRingBuffer)) (* char)]
+  [soundio_sort_channel_layouts ((* SoundIoChannelLayout) int) void]
+  [soundio_strerror (int) string]
+  [soundio_version_major () int]
+  [soundio_version_minor () int]
+  [soundio_version_patch () int]
+  [soundio_version_string () string]
+  [soundio_wait_events ((* SoundIo)) void]
+  [soundio_wakeup ((* SoundIo)) void])
+;; </ffi>
+(define-record-type soundio
+  (fields sio device out-stream write-callback-pointer underflow-callback-pointer))
+(define wrap-write-callback
+  (lambda (f)
+    (let ([timestamp 0])
+      (lambda (stream frame-count-min frame-count-max)
+        (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
+               [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
+               [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
+               [seconds-per-sample (inexact (/ 1 sample-rate))]
+               [areas (make-ftype-pointer
+                       *SoundIoChannelArea
+                       (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
+               [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
+          (let batch ([frames-left frame-count-max])
+            (ftype-set! int () frame-count frames-left)
+            (let ([err (soundio_outstream_begin_write
+                        stream
+                        areas
+                        frame-count)])
+              (if (not (zero? err))
+                  (exit))
+              (let* ([fc (ftype-ref int () frame-count)]
+                     [areas (ftype-ref *SoundIoChannelArea () areas)])
+                (if (not (zero? fc))
+                    (begin
+                      (do ([frame 0 (+ frame 1)])
+                          ((= frame fc) 0)
+                        (let ([t (* (+ timestamp frame) seconds-per-sample)])
+                          (do ([channel 0 (+ channel 1)])
+                              ((= channel channel-count) 0)
+                            (let ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
+                                  [step (ftype-ref SoundIoChannelArea (step) areas channel)])
+                              (foreign-set! 'float (ftype-pointer-address ptr) (* step frame) (f t channel))))))
+                      (set! timestamp (+ timestamp fc))
+                      (if (not (zero? (soundio_outstream_end_write stream)))
+                          (exit))))
+                (if (< 0 (- frames-left fc))
+                    (batch (- frames-left fc))))))
+          (foreign-free (ftype-pointer-address frame-count)))))))
+(define wrap-underflow-callback
+  (lambda (f)
+    (lambda (stream)
+      (f))))
+(define open-default-out-stream
+  (lambda (write-callback underflow-callback)
+    (let ([sio (soundio_create)])
+      (when (ftype-pointer-null? sio)
+        (error "soundio_create" "out of memory"))
+      (let ([err (soundio_connect sio)])
+        (when (not (zero? err))
+          (error "soundio_connect" (soundio_strerror err)))
+        (soundio_flush_events sio)
+        (let ([idx (soundio_default_output_device_index sio)])
+          (when (< idx 0)
+            (error "soundio_default_output_device_index" "no output device found"))
+          (let ([device (soundio_get_output_device sio idx)])
+            (when (ftype-pointer-null? device)
+              (error "soundio_get_output_device" "out of memory"))
+            (let ([out-stream (soundio_outstream_create device)])
+              (when (ftype-pointer-null? out-stream)
+                (error "soundio_outstream_create" "out of memory"))
+              (let ([write-callback (wrap-write-callback write-callback)]
+                    [underflow-callback (wrap-underflow-callback underflow-callback)])
+                (let ([write-callback-pointer (make-ftype-pointer WriteCallback write-callback)]
+                      [underflow-callback-pointer (make-ftype-pointer UnderflowCallback underflow-callback)])
+                  (ftype-set! SoundIoOutStream (write_callback) out-stream write-callback-pointer)
+                  (ftype-set! SoundIoOutStream (underflow_callback) out-stream underflow-callback-pointer)
+                  (let ([err (soundio_outstream_open out-stream)])
+                    (when (not (zero? err))
+                      (error "soundio_outstream_open" (soundio_strerror err)))
+                    (let ([err (ftype-ref SoundIoOutStream (layout_error) out-stream)])
+                      (when (not (zero? err))
+                        (error "soundio_outstream_open" (soundio_strerror err))))
+                    (make-soundio sio device out-stream write-callback-pointer underflow-callback-pointer)
+                    )
+                  ))
+              )
+            ))
+        ))
     ))
+(define start-out-stream
+  (lambda (soundio)
+    (soundio_outstream_start (soundio-out-stream soundio))))
 
-(ftype-set! SoundIoOutStream (write_callback)
-            stream
-            write-callback)
-
-;; TODO ensure sample type
-
-(soundio_outstream_open stream)
-(soundio_outstream_start stream)
-
-(let loop ()
-  (soundio_wait_events soundio)
-  (loop))
-
-(soundio_outstream_destroy stream)
-(soundio_device_unref device)
-(soundio_destroy soundio)
+(define stop-out-stream
+  (lambda (soundio)
+    (soundio_outstream_stop (soundio-out-stream soundio))))
+(define teardown-out-stream
+  (lambda (soundio)
+    (soundio_outstream_destroy (soundio-out-stream soundio))
+    (soundio_device_unref (soundio-device soundio))
+    (soundio_destroy (soundio-sio soundio))
+    (unlock-ftype-pointer (soundio-write-callback-pointer soundio))
+    (unlock-ftype-pointer (soundio-underflow-callback-pointer soundio))))

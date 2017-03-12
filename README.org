@@ -1,0 +1,680 @@
+* SoundIo
+
+  [[https://github.com/andrewrk/libsoundio][libsoundio]] [[https://github.com/cisco/ChezScheme][Chez Scheme]] wrapper.
+
+  Status: FFI is complete, high-level wrappers are alpha.
+
+  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.4.1
+
+  Chez Scheme 9.4 ta6osx from Homebrew fails badly with this code by SIGILL
+  (Illegal instruction) 4
+
+* Usage
+
+  TODO, see [[Example]] for now.
+
+* FFI
+
+** Load Library
+
+   libsoundio shared library should be installed somewhere in the PATH, let's
+   load it depending on platform:
+
+#+NAME: load-library
+#+BEGIN_SRC scheme
+  ;; <load-library>
+  (case (machine-type)
+    [(i3nt ti3nt a6nt ta6nt) (load-shared-object "libsoundio.dll")]
+    [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libsoundio.dylib")]
+    [(i3le ti3le a6le ta6le) (load-shared-object "libsoundio.so")]
+    [else (error "soundio"
+                 "don't know how libsoundio shared library file is called on this machine-type"
+                 (machine-type))])
+  ;; </load-library>
+#+END_SRC
+
+   Machine type correspondence to platform could be found in [[https://cisco.github.io/ChezScheme/release_notes/v9.4/release_notes.html][release notes]].
+
+** Data Structures
+
+   Defining foreign types (ftypes) for interaction with C code gives runtime checks and
+   more clarity. To have mutually recursive ftypes we will describe them one by
+   one and then put into the single =define-ftype=.
+
+   TODO Auto-generate most of this from =soundio.h=
+
+*** Enums
+
+    Chez Scheme FFI has no representation for enums, we are going to make them
+    just =int= aliases.
+
+#+NAME: ftype-enums
+#+BEGIN_SRC scheme
+  ;; <ftype-enums>
+  [SoundIoBackend int]
+  [SoundIoChannelId int]
+  [SoundIoFormat int]
+  [SoundIoDeviceAim int]
+  ;; </ftype-enums>
+#+END_SRC
+
+*** Callbacks
+
+    libsoundio has plenty of ones, defining ftypes for them instead of just
+    using =void*= would give us runtime safety and convenience.
+
+#+NAME: ftype-callbacks
+#+BEGIN_SRC scheme
+  ;; <ftype-callbacks>
+  [OnDeviceChangeCallback (function ((* SoundIo)) void)]
+  [OnBackendDisconnectCallback (function ((* SoundIo) int) void)]
+  [OnEventsSignalCallback (function ((* SoundIo)) void)]
+  [EmitRtprioWarningCallback (function () void)]
+  [JackInfoCallback (function ((* char)) void)]
+  [JackErrorCallback (function ((* char)) void)]
+  [WriteCallback (function ((* SoundIoOutStream) int int) void)]
+  [UnderflowCallback (function ((* SoundIoOutStream)) void)]
+  [ReadCallback (function ((* SoundIoInStream) int int) void)]
+  [OverflowCallback (function ((* SoundIoInStream)) void)]
+  [ErrorCallback (function ((* SoundIoOutStream) int) void)]
+  ;; </ftype-callbacks>
+#+END_SRC
+
+*** Structs
+
+#+NAME: SoundIo
+#+BEGIN_SRC scheme
+  [SoundIo
+   (struct
+    [userdata void*] ; Optional. Put whatever you want here. Defaults to NULL.
+    [on_devices_change (* OnDeviceChangeCallback)] ; Optional callback.
+    [on_backend_disconnect (* OnBackendDisconnectCallback)] ; Optional callback.
+    [on_events_signal (* OnEventsSignalCallback)] ; Optional callback.
+    [current_backend SoundIoBackend] ; Read-only.
+    [app_name (* char)] ; Optional: Application name.
+    [emit_rtprio_warning (* EmitRtprioWarningCallback)] ; Optional: Real time priority warning.
+    [jack_info_callback (* JackInfoCallback)] ; Optional: JACK info callback.
+    [jack_error_callback (* JackErrorCallback)] ; Optional: JACK error callback.
+    )]
+#+END_SRC
+
+#+NAME: SoundIoChannelArea
+#+BEGIN_SRC scheme
+  [SoundIoChannelArea
+   (struct
+    [ptr (* char)]
+    [step int])]
+  ;; Useful for defining **SoundIoChannelArea in function ftype as (* *SoundIoChannelArea)
+  ;; nested * or its alias doesn't work:
+  ;; Exception: invalid (non-base) foreign-procedure argument ftype **SoundIoChannelArea
+  [*SoundIoChannelArea (* SoundIoChannelArea)]
+#+END_SRC
+
+#+NAME: SoundIoChannelLayout
+#+BEGIN_SRC scheme
+  [SoundIoChannelLayout
+   (struct
+     [name (* char)]
+     [channel_count int]
+     ;; #define SOUNDIO_MAX_CHANNELS 24
+     ;; http://libsound.io/doc-1.1.0/soundio_8h.html#a1bf1282c5d903085916f8ed6af174bdd
+     [channels (array 24 SoundIoChannelId)])]
+#+END_SRC
+
+#+NAME: SoundIoDevice
+#+BEGIN_SRC scheme
+  [SoundIoDevice
+   (struct
+    [soundio (* SoundIo)]
+    [id (* char)]
+    [name (* char)]
+    [aim SoundIoDeviceAim]
+    [layouts (* SoundIoChannelLayout)]
+    [layout_count int]
+    [current_layout SoundIoChannelLayout]
+    [formats (* SoundIoFormat)]
+    [format_count int]
+    [current_format SoundIoFormat]
+    [sample_rates (* SoundIoSampleRateRange)]
+    [sample_rate_count int]
+    [sample_rate_current int]
+    [software_latency_min double]
+    [software_latency_max double]
+    [software_latency_current double]
+    [is_raw boolean]
+    [ref_count int]
+    [probe_error int])]
+#+END_SRC
+
+#+NAME: SoundIoInStream
+#+BEGIN_SRC scheme
+  [SoundIoInStream
+   (struct
+     [device (* SoundIoDevice)]
+     [format SoundIoFormat]
+     [sample_rate int]
+     [layout SoundIoChannelLayout]
+     [software_latency double]
+     [userdata void*]
+     [read_callback (* ReadCallback)]
+     [overflow_callback (* OverflowCallback)]
+     [error_callback (* ErrorCallback)]
+     [name (* char)]
+     [non_terminal_hint boolean]
+     [bytes_per_frame int]
+     [bytes_per_sample int]
+     [layout_error int])]
+#+END_SRC
+
+#+NAME: SoundIoOutStream
+#+BEGIN_SRC scheme
+  [SoundIoOutStream
+   (struct
+     [device (* SoundIoDevice)]
+     [format SoundIoFormat]
+     [sample_rate int]
+     [layout SoundIoChannelLayout]
+     [software_latency double]
+     [userdata void*]
+     [write_callback (* WriteCallback)]
+     [underflow_callback (* UnderflowCallback)]
+     [error_callback (* ErrorCallback)]
+     [name (* char)]
+     [non_terminal_hint boolean]
+     [bytes_per_frame int]
+     [bytes_per_sample int]
+     [layout_error int])]
+#+END_SRC
+
+#+NAME: SoundIoSampleRateRange
+#+BEGIN_SRC scheme
+  [SoundIoSampleRateRange
+   (struct
+    [min int]
+    [max int])]
+#+END_SRC
+
+#+NAME: SoundIoRingBuffer
+#+BEGIN_SRC scheme
+  [SoundIoRingBuffer
+   (struct
+    [mem SoundIoOsMirroredMemory]
+    [write_offset SoundIoAtomicLong]
+    [read_offset SoundIoAtomicLong]
+    [capacity int])]
+#+END_SRC
+
+#+NAME: SoundIoOsMirroredMemory
+#+BEGIN_SRC scheme
+  [SoundIoOsMirroredMemory
+   (struct
+    [capacity size_t]
+    [address (* char)]
+    [priv void*])]
+#+END_SRC
+
+#+NAME: SoundIoAtomicLong
+#+BEGIN_SRC scheme
+  [SoundIoAtomicLong void*]
+#+END_SRC
+
+#+NAME: ftype-structs
+#+BEGIN_SRC scheme
+  ;; <ftype-structs>
+  <<SoundIo>>
+  <<SoundIoChannelArea>>
+  <<SoundIoChannelLayout>>
+  <<SoundIoDevice>>
+  <<SoundIoInStream>>
+  <<SoundIoOutStream>>
+  <<SoundIoSampleRateRange>>
+  <<SoundIoOsMirroredMemory>>
+  <<SoundIoAtomicLong>>
+  <<SoundIoRingBuffer>>
+  ;; </ftype-structs>
+#+END_SRC
+
+*** Summa
+
+#+NAME: ftypes
+#+BEGIN_SRC scheme
+  ;; <ftypes>
+  (define-ftype
+    <<ftype-enums>>
+    <<ftype-callbacks>>
+    <<ftype-structs>>
+  )
+  ;; </ftypes>
+#+END_SRC
+
+** Procedures
+
+   We are going to keep original names while defining foreign procedures, thus
+   let's write a macro to save few keystrokes:
+
+#+NAME: define-foreign-procedure
+#+BEGIN_SRC scheme
+  (define-syntax define-foreign-procedure
+    (lambda (x)
+      (syntax-case x ()
+        [(_ [name args result])
+         #`(define name
+             (foreign-procedure
+              #,(symbol->string (syntax->datum #'name))
+              args
+              result))]
+        [(_ e ...)
+         #'(begin
+             (define-foreign-procedure e)
+             ...)])))
+#+END_SRC
+
+#+NAME: foreign-procedures
+#+BEGIN_SRC scheme
+  (define-foreign-procedure
+    [soundio_backend_count ((* SoundIo)) int]
+    [soundio_backend_name (SoundIoBackend) int]
+    [soundio_best_matching_channel_layout
+     ((* SoundIoChannelLayout) ; preferred_layouts
+      int                      ; preferred_layout_count
+      (* SoundIoChannelLayout) ; available_layouts
+      int                      ; available_layout_count
+      )
+     (* SoundIoChannelLayout)]
+    [soundio_channel_layout_builtin_count () int]
+    [soundio_channel_layout_detect_builtin ((* SoundIoChannelLayout)) boolean]
+    [soundio_channel_layout_equal ((* SoundIoChannelLayout) (* SoundIoChannelLayout)) boolean]
+    [soundio_channel_layout_find_channel ((* SoundIoChannelLayout) SoundIoChannelId) int]
+    [soundio_channel_layout_get_builtin (int) (* SoundIoChannelLayout)]
+    [soundio_channel_layout_get_default (#|channel_count|# int) (* SoundIoChannelLayout)]
+    [soundio_connect ((* SoundIo)) int]
+    [soundio_connect_backend ((* SoundIo) (* SoundIoBackend)) int]
+    [soundio_create () (* SoundIo)]
+    [soundio_default_input_device_index ((* SoundIo)) int]
+    [soundio_default_output_device_index ((* SoundIo)) int]
+    [soundio_destroy ((* SoundIo)) void]
+    [soundio_device_equal ((* SoundIoDevice) (* SoundIoDevice)) boolean]
+    [soundio_device_nearest_sample_rate ((* SoundIoDevice) int) int]
+    [soundio_device_ref ((* SoundIoDevice)) void]
+    [soundio_device_sort_channel_layouts ((* SoundIoDevice)) void]
+    [soundio_device_supports_format ((* SoundIoDevice) SoundIoFormat) boolean]
+    [soundio_device_supports_layout ((* SoundIoDevice) (* SoundIoChannelLayout)) boolean]
+    [soundio_device_supports_sample_rate ((* SoundIoDevice) int) boolean]
+    [soundio_device_unref ((* SoundIoDevice)) void]
+    [soundio_disconnect ((* SoundIo)) void]
+    [soundio_flush_events ((* SoundIo)) void]
+    [soundio_force_device_scan ((* SoundIo)) void]
+    [soundio_format_string (SoundIoFormat) string]
+    [soundio_get_backend ((* SoundIo) int) SoundIoBackend]
+    ;; [soundio_get_bytes_per_frame (SoundIoFormat #|channel_count|# int) int]
+    ;; [soundio_get_bytes_per_sample (SoundIoFormat) int]
+    ;; [soundio_get_bytes_per_second (SoundIoFormat #|channel_count|# int #|sample_rate|# int) int]
+    [soundio_get_channel_name (SoundIoChannelId) string]
+    [soundio_get_input_device ((* SoundIo) int) (* SoundIoDevice)]
+    [soundio_get_output_device ((* SoundIo) int) (* SoundIoDevice)]
+    [soundio_have_backend (SoundIoBackend) boolean]
+    [soundio_input_device_count ((* SoundIo)) int]
+    [soundio_instream_begin_read ((* SoundIoInStream) (* *SoundIoChannelArea) (* int)) int]
+    [soundio_instream_create ((* SoundIoDevice)) (* SoundIoInStream)]
+    [soundio_instream_destroy ((* SoundIoInStream)) void]
+    [soundio_instream_end_read ((* SoundIoInStream)) int]
+    [soundio_instream_get_latency ((* SoundIoInStream) (* double)) int]
+    [soundio_instream_open ((* SoundIoInStream)) int]
+    [soundio_instream_pause ((* SoundIoInStream) boolean) int]
+    [soundio_instream_start ((* SoundIoInStream)) int]
+    [soundio_output_device_count ((* SoundIo)) int]
+    [soundio_outstream_begin_write ((* SoundIoOutStream) (* *SoundIoChannelArea) (* int)) int]
+    [soundio_outstream_clear_buffer ((* SoundIoOutStream)) int]
+    [soundio_outstream_create ((* SoundIoDevice)) (* SoundIoOutStream)]
+    [soundio_outstream_destroy ((* SoundIoOutStream)) void]
+    [soundio_outstream_end_write ((* SoundIoOutStream)) int]
+    [soundio_outstream_get_latency ((* SoundIoOutStream) (* double)) int]
+    [soundio_outstream_open ((* SoundIoOutStream)) int]
+    [soundio_outstream_pause ((* SoundIoOutStream) boolean) int]
+    [soundio_outstream_start ((* SoundIoOutStream)) int]
+    [soundio_parse_channel_id ((* char) int) SoundIoChannelId]
+    [soundio_ring_buffer_advance_read_ptr ((* SoundIoRingBuffer) int) void]
+    [soundio_ring_buffer_advance_write_ptr ((* SoundIoRingBuffer) int) void]
+    [soundio_ring_buffer_capacity ((* SoundIoRingBuffer)) int]
+    [soundio_ring_buffer_clear ((* SoundIoRingBuffer)) void]
+    [soundio_ring_buffer_create ((* SoundIo) int) (* SoundIoRingBuffer)]
+    [soundio_ring_buffer_destroy ((* SoundIoRingBuffer)) void]
+    [soundio_ring_buffer_fill_count ((* SoundIoRingBuffer)) int]
+    [soundio_ring_buffer_free_count ((* SoundIoRingBuffer)) int]
+    [soundio_ring_buffer_read_ptr ((* SoundIoRingBuffer)) (* char)]
+    [soundio_ring_buffer_write_ptr ((* SoundIoRingBuffer)) (* char)]
+    [soundio_sort_channel_layouts ((* SoundIoChannelLayout) int) void]
+    [soundio_strerror (int) string]
+    [soundio_version_major () int]
+    [soundio_version_minor () int]
+    [soundio_version_patch () int]
+    [soundio_version_string () string]
+    [soundio_wait_events ((* SoundIo)) void]
+    [soundio_wakeup ((* SoundIo)) void])
+#+END_SRC
+
+** Summa
+
+#+NAME: ffi
+#+BEGIN_SRC scheme
+  ;; <ffi>
+  <<load-library>>
+  <<ftypes>>
+  <<define-foreign-procedure>>
+  <<foreign-procedures>>
+  ;; </ffi>
+#+END_SRC
+
+* Higher-level wrapping
+
+  Though library is already usable for producing sound via Scheme there is still
+  plenty of boilerplate to abstract away. It's quite hard to cover all use
+  cases, the plan is to add features one by one based on real usage feedback.
+
+  Most of the time I want just fire up default output device and provide
+  per-sample-per-channel dsp callback to make noise, and eventually stop doing
+  it. It would be good to have dedicated DS which will hold a bunch of pointers
+  created on the way.
+
+#+NAME: soundio-record
+#+BEGIN_SRC scheme
+  (define-record-type soundio
+    (fields sio device out-stream write-callback-pointer underflow-callback-pointer))
+#+END_SRC
+
+  Next step is to encapsulate all initialization routines.
+  TODO do I use =error= properly?
+
+  As an experiment, let's go from the end to the beginning. Ultimate goal of
+  initialization is to have open output audio stream on default device. The
+  stream should have =write_callback= (and =underflow_callback= too; though it's
+  optional, it's always a good idea to be notified about underflows) assigned
+  but to be not started. We want to ignit sound as a separate action. Also we
+  want to return a bunch of pointers packed into =soundio= record to have access
+  to them later: to start and stop stream and to properly close and destroy
+  stream.
+
+  =define-record-type= produced record constructor for us, just pass fields to
+  it:
+
+#+NAME: make-soundio
+#+BEGIN_SRC scheme
+  (make-soundio sio device out-stream write-callback-pointer underflow-callback-pointer)
+#+END_SRC
+
+  It makes sense to create and return that record if opening stream was
+  successful:
+
+#+NAME: try-open-stream
+#+BEGIN_SRC scheme
+  (let ([err (soundio_outstream_open out-stream)])
+    (when (not (zero? err))
+      (error "soundio_outstream_open" (soundio_strerror err)))
+    (let ([err (ftype-ref SoundIoOutStream (layout_error) out-stream)])
+      (when (not (zero? err))
+        (error "soundio_outstream_open" (soundio_strerror err))))
+    <<make-soundio>>
+    )
+#+END_SRC
+
+  Callbacks are set before stream opening. We don't want user to bother with
+  pointer arithmetic and stuff, thus we wrap callbacks. User's =write-callback=
+  will receive =timestamp= and =channel= and should return sample value.
+  =underflow-callback= will be called without arguments.
+
+#+NAME: set-stream-callbacks
+#+BEGIN_SRC scheme
+  (let ([write-callback (wrap-write-callback write-callback)]
+        [underflow-callback (wrap-underflow-callback underflow-callback)])
+    (let ([write-callback-pointer (make-ftype-pointer WriteCallback write-callback)]
+          [underflow-callback-pointer (make-ftype-pointer UnderflowCallback underflow-callback)])
+      (ftype-set! SoundIoOutStream (write_callback) out-stream write-callback-pointer)
+      (ftype-set! SoundIoOutStream (underflow_callback) out-stream underflow-callback-pointer)
+      <<try-open-stream>>
+      ))
+#+END_SRC
+
+  Let's create stream before setting its callbacks:
+
+#+NAME: try-create-stream
+#+BEGIN_SRC scheme
+  (let ([out-stream (soundio_outstream_create device)])
+    (when (ftype-pointer-null? out-stream)
+      (error "soundio_outstream_create" "out of memory"))
+    <<set-stream-callbacks>>
+    )
+#+END_SRC
+
+  The same story with device, we need to obtain it before use:
+
+#+NAME: try-create-device
+#+BEGIN_SRC scheme
+  (let ([idx (soundio_default_output_device_index sio)])
+    (when (< idx 0)
+      (error "soundio_default_output_device_index" "no output device found"))
+    (let ([device (soundio_get_output_device sio idx)])
+      (when (ftype-pointer-null? device)
+        (error "soundio_get_output_device" "out of memory"))
+      <<try-create-stream>>
+      ))
+#+END_SRC
+
+  And sio instance is to be created and connected before device access. Note
+  flushing events.
+
+#+NAME: try-create-connect-sio
+#+BEGIN_SRC scheme
+  (let ([sio (soundio_create)])
+    (when (ftype-pointer-null? sio)
+      (error "soundio_create" "out of memory"))
+    (let ([err (soundio_connect sio)])
+      (when (not (zero? err))
+        (error "soundio_connect" (soundio_strerror err)))
+      (soundio_flush_events sio)
+      <<try-create-device>>
+      ))
+#+END_SRC
+
+  Now just wrap it into a lambda =)
+
+#+NAME: open-default-out-stream
+#+BEGIN_SRC scheme
+  (define open-default-out-stream
+    (lambda (write-callback underflow-callback)
+      <<try-create-connect-sio>>
+      ))
+#+END_SRC
+
+  TODO rewrite this section, this particular form of bottom-up approach seems to
+  be not very clear. Also, this chain of lets-and-errors looks like a good
+  candidate to be replaced with Maybe monad.
+
+  Now we need to be able start stream, stop stream and teardown our audio
+  subsytem. Starting and stopping is straightforward:
+
+#+NAME: start-stop-out-stream
+#+BEGIN_SRC scheme
+  (define start-out-stream
+    (lambda (soundio)
+      (soundio_outstream_start (soundio-out-stream soundio))))
+
+  (define stop-out-stream
+    (lambda (soundio)
+      (soundio_outstream_stop (soundio-out-stream soundio))))
+#+END_SRC
+
+  Unmounting entire system require more actions. We are to destroy stream, unref
+  device, destroy sio and to unlock callbacks for GC harvesting.
+
+#+NAME: teardown-out-stream
+#+BEGIN_SRC scheme
+  (define teardown-out-stream
+    (lambda (soundio)
+      (soundio_outstream_destroy (soundio-out-stream soundio))
+      (soundio_device_unref (soundio-device soundio))
+      (soundio_destroy (soundio-sio soundio))
+      (unlock-ftype-pointer (soundio-write-callback-pointer soundio))
+      (unlock-ftype-pointer (soundio-underflow-callback-pointer soundio))))
+#+END_SRC
+
+  TODO Hey, this is complex stuff to be broke down and explained.
+
+#+NAME: wrap-write-callback
+#+BEGIN_SRC scheme
+  (define wrap-write-callback
+    (lambda (f)
+      (let ([timestamp 0])
+        (lambda (stream frame-count-min frame-count-max)
+          (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
+                 [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
+                 [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
+                 [seconds-per-sample (inexact (/ 1 sample-rate))]
+                 [areas (make-ftype-pointer
+                         *SoundIoChannelArea
+                         (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
+                 [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
+            (let batch ([frames-left frame-count-max])
+              (ftype-set! int () frame-count frames-left)
+              (let ([err (soundio_outstream_begin_write
+                          stream
+                          areas
+                          frame-count)])
+                (if (not (zero? err))
+                    (exit))
+                (let* ([fc (ftype-ref int () frame-count)]
+                       [areas (ftype-ref *SoundIoChannelArea () areas)])
+                  (if (not (zero? fc))
+                      (begin
+                        (do ([frame 0 (+ frame 1)])
+                            ((= frame fc) 0)
+                          (let ([t (* (+ timestamp frame) seconds-per-sample)])
+                            (do ([channel 0 (+ channel 1)])
+                                ((= channel channel-count) 0)
+                              (let ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
+                                    [step (ftype-ref SoundIoChannelArea (step) areas channel)])
+                                (foreign-set! 'float (ftype-pointer-address ptr) (* step frame) (f t channel))))))
+                        (set! timestamp (+ timestamp fc))
+                        (if (not (zero? (soundio_outstream_end_write stream)))
+                            (exit))))
+                  (if (< 0 (- frames-left fc))
+                      (batch (- frames-left fc))))))
+            (foreign-free (ftype-pointer-address frame-count)))))))
+#+END_SRC
+
+#+NAME: wrap-underflow-callback
+#+BEGIN_SRC scheme
+  (define wrap-underflow-callback
+    (lambda (f)
+      (lambda (stream)
+        (f))))
+#+END_SRC
+
+** Summa
+
+#+NAME: high-level-wrapper
+#+BEGIN_SRC scheme
+  <<soundio-record>>
+  <<wrap-write-callback>>
+  <<wrap-underflow-callback>>
+  <<open-default-out-stream>>
+  <<start-stop-out-stream>>
+  <<teardown-out-stream>>
+#+END_SRC
+
+* Helpers
+
+  =make-ftype-pointer= locks object as pointed [[https://cisco.github.io/ChezScheme/csug9.4/foreign.html][here]], and its manual unlocking is
+  required to prevent memory leaks. It's done by 3 levels deep call of core
+  functions, thus we are going to define a dedicated function for it.
+
+#+NAME: unlock-ftype-pointer
+#+BEGIN_SRC scheme
+  (define unlock-ftype-pointer
+    (lambda (fptr)
+      (unlock-object
+       (foreign-callable-code-object
+        (ftype-pointer-address fptr)))))
+#+END_SRC
+
+** Summa
+
+#+NAME: helpers
+#+BEGIN_SRC scheme
+  <<unlock-ftype-pointer>>
+#+END_SRC
+
+* Example
+
+  Let's play a bunch of sine waves (and test performance on the way).
+
+#+NAME: sine-example
+#+BEGIN_SRC scheme :tangle sine-example.ss :noweb yes :mkdirp yes :paddle no
+  (load "soundio.ss")
+
+  (define pi 3.1415926535)
+  (define two-pi (* 2 pi))
+
+  (define sine
+    (lambda (time freq)
+      (sin (* two-pi freq time))))
+
+  (define square
+    (lambda (time freq)
+      (let ([ft (* two-pi freq time)])
+        (+ (- (* 2 (floor ft))
+              (floor (* 2 ft)))
+           1))))
+
+  (define underflow-callback
+    (lambda ()
+      (display "undeflow!\n")))
+
+  (define write-callback
+    (lambda (time channel)
+      (let ([k 100]
+            [sample 0.0])
+        (do ([i 1 (+ i 1)])
+            ((= i k) 0)
+          (set! sample (+ sample
+                          ;; (- (random 2.0) 1.0)
+                          (sine time (+ 440.0 i))
+                          ;; (square time (+ 440.0 i))
+                          )))
+        (/ sample k))))
+
+  (define sio (open-default-out-stream write-callback underflow-callback))
+  (start-out-stream sio)
+#+END_SRC
+
+* License and Contribution
+
+  Contribution is more than welcome in any form. If you don't want to bother
+  youself dealing with org-mode (though it worth trying!), just patch generated
+  files included in repo and make PR. I'll incorporate changes into org file
+  then.
+
+#+BEGIN_SRC text :tangle LICENSE
+ISC License
+
+Copyright (c) 2017, Ruslan Prokopchuk
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+#+END_SRC
+
+* Files :noexport:
+#+BEGIN_SRC scheme :tangle soundio.ss :noweb yes :mkdirp yes :paddle no
+  (import (chezscheme))
+  <<helpers>>
+  <<ffi>>
+  <<high-level-wrapper>>
+#+END_SRC
