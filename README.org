@@ -4,10 +4,11 @@
 
   Status: FFI is complete, high-level wrappers are alpha.
 
-  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.4.1
+  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.4.1 /nonthreaded/
 
-  Chez Scheme 9.4 ta6osx from Homebrew fails badly with this code by SIGILL
-  (Illegal instruction) 4
+  Threaded Chez Scheme ta6osx fails badly with this code by SIGILL (Illegal
+  instruction). If you have ideas why it happens and how to fix it, please ping
+  me.
 
 * Usage
 
