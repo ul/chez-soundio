@@ -4,11 +4,11 @@
 
   Status: FFI is complete, high-level wrappers are alpha.
 
-  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.4.1 /nonthreaded/
+  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.4.1
 
-  Threaded Chez Scheme ta6osx fails badly with this code by SIGILL (Illegal
-  instruction). If you have ideas why it happens and how to fix it, please ping
-  me.
+  NOTE: Threaded Chez Scheme crashes with SIGILL on MacOS and with SIGSEGV on
+  Linux if =write_callback= calls Scheme code. Please use provided ring buffer
+  based bridge.
 
 * Usage
 
@@ -35,6 +35,34 @@
 #+END_SRC
 
    Machine type correspondence to platform could be found in [[https://cisco.github.io/ChezScheme/release_notes/v9.4/release_notes.html][release notes]].
+
+   To make library work in threaded version we need to build and load our
+   =bridge.c= helper:
+
+#+NAME build-bridge
+#+BEGIN_SRC scheme
+  ;; <build-bridge>
+  (define bridge-name "./bridge.c")
+  (define bridge-lib (format "./lib~s.so" bridge-name))
+
+  (unless (file-exists? bridge-lib)
+    (case (machine-type)
+      [(i3nt ti3nt a6nt ta6nt)
+       (begin
+         ;; FIXME link to soundio
+         (system (format "cl -c -DWIN32 ~s.c" bridge-name))
+         (system (format "link -dll -out:~s ~s.obj" bridge-lib bridge-name)))]
+      [(i3osx ti3osx a6osx ta6osx)
+       (system (format "cc -dynamiclib -lsoundio -o ~s ~s.c" bridge-lib bridge-name))]
+      [(i3le ti3le a6le ta6le)
+       (system (format "cc -fPIC -shared -lsoundio -o ~s ~s.c" bridge-lib bridge-name))]
+      [else (error "soundio"
+                   "don't know how to build bridge shared library on this machine-type"
+                   (machine-type))]))
+
+  (load-shared-object bridge-lib)
+  ;; </build-bridge>
+#+END_SRC
 
 ** Data Structures
 
@@ -216,7 +244,7 @@
 
 #+NAME: SoundIoAtomicLong
 #+BEGIN_SRC scheme
-  [SoundIoAtomicLong void*]
+  [SoundIoAtomicLong long]
 #+END_SRC
 
 #+NAME: ftype-structs
@@ -351,7 +379,9 @@
     [soundio_version_patch () int]
     [soundio_version_string () string]
     [soundio_wait_events ((* SoundIo)) void]
-    [soundio_wakeup ((* SoundIo)) void])
+    [soundio_wakeup ((* SoundIo)) void]
+    ;; from bridge
+    [soundio_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void])
 #+END_SRC
 
 ** Summa
@@ -360,6 +390,7 @@
 #+BEGIN_SRC scheme
   ;; <ffi>
   <<load-library>>
+  <<build-bridge>>
   <<ftypes>>
   <<define-foreign-procedure>>
   <<foreign-procedures>>

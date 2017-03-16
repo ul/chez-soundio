@@ -1,3 +1,9 @@
+#ifdef WIN32
+#define EXPORT extern __declspec (dllexport)
+#else
+#define EXPORT extern
+#endif
+
 #include <soundio/soundio.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,7 +75,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
   soundio_ring_buffer_advance_read_ptr(ring_buffer, read_count * outstream->bytes_per_frame);
 }
 
-extern void bridge_outstream_attach_ring_buffer
+EXPORT void bridge_outstream_attach_ring_buffer
 (struct SoundIoOutStream *outstream, struct SoundIoRingBuffer *buffer) {
   outstream->format = SoundIoFormatFloat32NE;
   outstream->userdata = buffer;
