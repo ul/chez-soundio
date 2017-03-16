@@ -1,4 +1,3 @@
-
 (import (chezscheme))
 (define unlock-ftype-pointer
   (lambda (fptr)
@@ -15,6 +14,27 @@
                "don't know how libsoundio shared library file is called on this machine-type"
                (machine-type))])
 ;; </load-library>
+;; <build-bridge>
+(define bridge-name "bridge")
+(define bridge-lib (format "./lib~a.so" bridge-name))
+
+(unless (file-exists? bridge-lib)
+  (case (machine-type)
+    [(i3nt ti3nt a6nt ta6nt)
+     (begin
+       ;; FIXME link to soundio
+       (system (format "cl -c -DWIN32 ~a.c" bridge-name))
+       (system (format "link -dll -out:~a ~a.obj" bridge-lib bridge-name)))]
+    [(i3osx ti3osx a6osx ta6osx)
+     (system (format "cc -dynamiclib -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+    [(i3le ti3le a6le ta6le)
+     (system (format "cc -fPIC -shared -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+    [else (error "soundio"
+                 "don't know how to build bridge shared library on this machine-type"
+                 (machine-type))]))
+
+(load-shared-object bridge-lib)
+;; </build-bridge>
 ;; <ftypes>
 (define-ftype
   ;; <ftype-enums>
@@ -126,7 +146,7 @@
     [capacity size_t]
     [address (* char)]
     [priv void*])]
-  [SoundIoAtomicLong void*]
+  [SoundIoAtomicLong long]
   [SoundIoRingBuffer
    (struct
     [mem SoundIoOsMirroredMemory]
@@ -228,7 +248,9 @@
   [soundio_version_patch () int]
   [soundio_version_string () string]
   [soundio_wait_events ((* SoundIo)) void]
-  [soundio_wakeup ((* SoundIo)) void])
+  [soundio_wakeup ((* SoundIo)) void]
+  ;; from bridge
+  [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void])
 ;; </ffi>
 (define-record-type soundio
   (fields sio device out-stream write-callback-pointer underflow-callback-pointer))
