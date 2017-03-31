@@ -53,9 +53,9 @@
          (system (format "cl -c -DWIN32 ~a.c" bridge-name))
          (system (format "link -dll -out:~a ~a.obj" bridge-lib bridge-name)))]
       [(i3osx ti3osx a6osx ta6osx)
-       (system (format "cc -dynamiclib -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+       (system (format "cc -O3 -dynamiclib -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
       [(i3le ti3le a6le ta6le)
-       (system (format "cc -fPIC -shared -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+       (system (format "cc -O3 -fPIC -shared -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
       [else (error "soundio"
                    "don't know how to build bridge shared library on this machine-type"
                    (machine-type))]))
@@ -411,7 +411,7 @@
 #+NAME: soundio-record
 #+BEGIN_SRC scheme
   (define-record-type soundio
-    (fields sio device out-stream write-callback-pointer underflow-callback-pointer))
+    (fields sio device out-stream ring-buffer write-callback))
 #+END_SRC
 
   Next step is to encapsulate all initialization routines.
@@ -431,7 +431,7 @@
 
 #+NAME: make-soundio
 #+BEGIN_SRC scheme
-  (make-soundio sio device out-stream write-callback-pointer underflow-callback-pointer)
+  (make-soundio sio device out-stream ring-buffer write-callback)
 #+END_SRC
 
   It makes sense to create and return that record if opening stream was
@@ -450,20 +450,26 @@
 #+END_SRC
 
   Callbacks are set before stream opening. We don't want user to bother with
-  pointer arithmetic and stuff, thus we wrap callbacks. User's =write-callback=
-  will receive =timestamp= and =channel= and should return sample value.
-  =underflow-callback= will be called without arguments.
+  pointer arithmetic and stuff, thus we wrap callbacks. Even more, threaded Chez
+  Scheme crashes when =write_callback= (and perhaps =underflow_callback=, need
+  to double check) calls Scheme code. Thus we are going to use ring buffer to
+  build a bridge between systems. User's =write-callback= will receive
+  =timestamp= and =channel= and should return sample value. =underflow-callback=
+  will be called without arguments.
 
-#+NAME: set-stream-callbacks
+#+NAME: attach-buffer-to-stream
 #+BEGIN_SRC scheme
-  (let ([write-callback (wrap-write-callback write-callback)]
-        [underflow-callback (wrap-underflow-callback underflow-callback)])
-    (let ([write-callback-pointer (make-ftype-pointer WriteCallback write-callback)]
-          [underflow-callback-pointer (make-ftype-pointer UnderflowCallback underflow-callback)])
-      (ftype-set! SoundIoOutStream (write_callback) out-stream write-callback-pointer)
-      (ftype-set! SoundIoOutStream (underflow_callback) out-stream underflow-callback-pointer)
-      <<try-open-stream>>
-      ))
+  (let* ([frame-size (ftype-sizeof float)] ;; FIXME support other sample formats
+         ;; [channel-count (ftype-ref SoundIoOutStream (layout channel_count) out-stream)]
+         [channel-count 2]
+         ;; REVIEW
+         [buffer-size 512]
+         [ring-buffer (soundio_ring_buffer_create sio (* 3 buffer-size frame-size channel-count))])
+    (when (ftype-pointer-null? ring-buffer)
+      (error "soundio_ring_buffer_create" "out of memory"))
+    (bridge_outstream_attach_ring_buffer out-stream ring-buffer)
+    <<try-open-stream>>
+    )
 #+END_SRC
 
   Let's create stream before setting its callbacks:
@@ -473,7 +479,7 @@
   (let ([out-stream (soundio_outstream_create device)])
     (when (ftype-pointer-null? out-stream)
       (error "soundio_outstream_create" "out of memory"))
-    <<set-stream-callbacks>>
+    <<attach-buffer-to-stream>>
     )
 #+END_SRC
 
@@ -512,7 +518,7 @@
 #+NAME: open-default-out-stream
 #+BEGIN_SRC scheme
   (define open-default-out-stream
-    (lambda (write-callback underflow-callback)
+    (lambda (write-callback)
       <<try-create-connect-sio>>
       ))
 #+END_SRC
@@ -522,83 +528,72 @@
   candidate to be replaced with Maybe monad.
 
   Now we need to be able start stream, stop stream and teardown our audio
-  subsytem. Starting and stopping is straightforward:
+  subsytem. Starting and stopping stream require managing thread responsible
+  for calling our dsp function and filling ring buffer.
 
 #+NAME: start-stop-out-stream
 #+BEGIN_SRC scheme
   (define start-out-stream
     (lambda (soundio)
+      ;; FIXME convert into frame*channels count
+      ;; FIXME get channels of stream here
+      ;; FIXME support more sample types than just float
+      (fork-thread
+       (lambda ()
+         (let* (
+                [frame-size (ftype-sizeof float)]
+                [out-stream (soundio-out-stream soundio)]
+                ;; [channel-count (ftype-ref SoundIoOutStream (layout channel_count) out-stream)]
+                [channel-count 2]
+                [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
+                [seconds-per-sample (inexact (/ 1 sample-rate))]
+                [ring-buffer (soundio-ring-buffer soundio)]
+                [capacity (soundio_ring_buffer_capacity ring-buffer)]
+                [buffer-size (/ capacity frame-size channel-count)]
+                [write-callback (soundio-write-callback soundio)]
+                [polling-cycle (make-time 'time-duration 1000000 0)]
+                )
+           (let loop ([sample-number 0])
+             (let ([free-count (soundio_ring_buffer_free_count ring-buffer)])
+               (if (zero? free-count)
+                   (begin
+                     (sleep polling-cycle)
+                     (loop sample-number))
+                   (let ([free-frames (/ free-count frame-size channel-count)]
+                         [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
+                     (do ([frame 0 (+ frame 1)])
+                         ((= frame free-frames) 0)
+                       (do ([channel 0 (+ channel 1)])
+                           ((= channel channel-count) 0)
+                         (foreign-set!
+                          'float
+                          write-ptr
+                          (* (+ (* frame channel-count) channel) frame-size)
+                          (write-callback
+                           (* seconds-per-sample (+ sample-number frame))
+                           channel))
+                         ))
+                     (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
+                     (loop (+ sample-number free-frames)))))))))
       (soundio_outstream_start (soundio-out-stream soundio))))
 
   (define stop-out-stream
     (lambda (soundio)
+      ;; FIXME kill writing thread
       (soundio_outstream_stop (soundio-out-stream soundio))))
 #+END_SRC
 
   Unmounting entire system require more actions. We are to destroy stream, unref
-  device, destroy sio and to unlock callbacks for GC harvesting.
+  device, destroy sio and ring buffer.
 
 #+NAME: teardown-out-stream
 #+BEGIN_SRC scheme
   (define teardown-out-stream
     (lambda (soundio)
       (soundio_outstream_destroy (soundio-out-stream soundio))
+      (soundio_ring_buffer_destroy (soundio-ring-buffer soundio))
       (soundio_device_unref (soundio-device soundio))
-      (soundio_destroy (soundio-sio soundio))
-      (unlock-ftype-pointer (soundio-write-callback-pointer soundio))
-      (unlock-ftype-pointer (soundio-underflow-callback-pointer soundio))))
-#+END_SRC
-
-  TODO Hey, this is complex stuff to be broke down and explained.
-
-#+NAME: wrap-write-callback
-#+BEGIN_SRC scheme
-  (define wrap-write-callback
-    (lambda (f)
-      (let ([timestamp 0])
-        (lambda (stream frame-count-min frame-count-max)
-          (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
-                 [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
-                 [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
-                 [seconds-per-sample (inexact (/ 1 sample-rate))]
-                 [areas (make-ftype-pointer
-                         *SoundIoChannelArea
-                         (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
-                 [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
-            (let batch ([frames-left frame-count-max])
-              (ftype-set! int () frame-count frames-left)
-              (let ([err (soundio_outstream_begin_write
-                          stream
-                          areas
-                          frame-count)])
-                (if (not (zero? err))
-                    (exit))
-                (let* ([fc (ftype-ref int () frame-count)]
-                       [areas (ftype-ref *SoundIoChannelArea () areas)])
-                  (if (not (zero? fc))
-                      (begin
-                        (do ([frame 0 (+ frame 1)])
-                            ((= frame fc) 0)
-                          (let ([t (* (+ timestamp frame) seconds-per-sample)])
-                            (do ([channel 0 (+ channel 1)])
-                                ((= channel channel-count) 0)
-                              (let ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
-                                    [step (ftype-ref SoundIoChannelArea (step) areas channel)])
-                                (foreign-set! 'float (ftype-pointer-address ptr) (* step frame) (f t channel))))))
-                        (set! timestamp (+ timestamp fc))
-                        (if (not (zero? (soundio_outstream_end_write stream)))
-                            (exit))))
-                  (if (< 0 (- frames-left fc))
-                      (batch (- frames-left fc))))))
-            (foreign-free (ftype-pointer-address frame-count)))))))
-#+END_SRC
-
-#+NAME: wrap-underflow-callback
-#+BEGIN_SRC scheme
-  (define wrap-underflow-callback
-    (lambda (f)
-      (lambda (stream)
-        (f))))
+      (soundio_destroy (soundio-sio soundio))))
 #+END_SRC
 
 ** Summa
@@ -606,8 +601,6 @@
 #+NAME: high-level-wrapper
 #+BEGIN_SRC scheme
   <<soundio-record>>
-  <<wrap-write-callback>>
-  <<wrap-underflow-callback>>
   <<open-default-out-stream>>
   <<start-stop-out-stream>>
   <<teardown-out-stream>>
@@ -643,39 +636,25 @@
 #+BEGIN_SRC scheme :tangle sine-example.ss :noweb yes :mkdirp yes :paddle no
   (load "soundio.ss")
 
-  (define pi 3.1415926535)
-  (define two-pi (* 2 pi))
-
-  (define sine
-    (lambda (time freq)
-      (sin (* two-pi freq time))))
-
-  (define square
-    (lambda (time freq)
-      (let ([ft (* two-pi freq time)])
-        (+ (- (* 2 (floor ft))
-              (floor (* 2 ft)))
-           1))))
-
-  (define underflow-callback
-    (lambda ()
-      (display "undeflow!\n")))
-
-  (define write-callback
-    (lambda (time channel)
-      (let ([k 100]
-            [sample 0.0])
-        (do ([i 1 (+ i 1)])
-            ((= i k) 0)
-          (set! sample (+ sample
-                          ;; (- (random 2.0) 1.0)
-                          (sine time (+ 440.0 i))
-                          ;; (square time (+ 440.0 i))
-                          )))
-        (/ sample k))))
-
-  (define sio (open-default-out-stream write-callback underflow-callback))
-  (start-out-stream sio)
+  (fork-thread
+   (lambda ()
+     (let* ([pi 3.1415926535]
+            [two-pi (* 2 pi)]
+            [sine (lambda (time freq)
+                    (sin (* two-pi freq time)))]
+            [square (lambda (time freq)
+                      (let ([ft (* two-pi freq time)])
+                        (+ (- (* 2 (floor ft))
+                              (floor (* 2 ft)))
+                           1)))]
+            [write-callback (lambda (time channel)
+                              (let ([k 120]
+                                    [sample 0.0])
+                                (do ([i 0 (+ i 1)]
+                                     [sample 0.0 (+ sample (sine time (+ 440.0 i)))])
+                                    ((= i k) (/ sample k)))))]
+            [sio (open-default-out-stream write-callback)])
+       (start-out-stream sio))))
 #+END_SRC
 
 * License and Contribution
@@ -728,6 +707,7 @@ PERFORMANCE OF THIS SOFTWARE.
     struct SoundIoRingBuffer *ring_buffer = outstream->userdata;
     struct SoundIoChannelArea *areas;
     int frame_count;
+    int frames_left;
     int err;
 
     char *read_ptr = soundio_ring_buffer_read_ptr(ring_buffer);
@@ -736,12 +716,17 @@ PERFORMANCE OF THIS SOFTWARE.
 
     if (frame_count_min > fill_count) {
       // Ring buffer does not have enough data, fill with zeroes.
+      frames_left = frame_count_min;
       for (;;) {
+        frame_count = frames_left;
+        if (!frame_count)
+          return;
         if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
-          fprintf(stderr, "%s\n", soundio_strerror(err));
+          fprintf(stderr, "0 begin_write: %s\n", soundio_strerror(err));
+          // REVIEW pthread_exit?
           exit(1);
         }
-        if (frame_count <= 0)
+        if (!frame_count)
           return;
         for (int frame = 0; frame < frame_count; frame += 1) {
           for (int ch = 0; ch < outstream->layout.channel_count; ch += 1) {
@@ -750,20 +735,23 @@ PERFORMANCE OF THIS SOFTWARE.
           }
         }
         if ((err = soundio_outstream_end_write(outstream))) {
-          fprintf(stderr, "%s\n", soundio_strerror(err));
+          fprintf(stderr, "0 end_write: %s\n", soundio_strerror(err));
+          // REVIEW pthread_exit?
           exit(1);
         }
+        frames_left -= frame_count;
       }
     }
 
     int read_count = frame_count_max < fill_count ? frame_count_max : fill_count;
-    int frames_left = read_count;
+    frames_left = read_count;
 
     while (frames_left > 0) {
       int frame_count = frames_left;
 
       if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
-        fprintf(stderr, "%s\n", soundio_strerror(err));
+        fprintf(stderr, "1 begin_write: %s\n", soundio_strerror(err));
+        // REVIEW pthread_exit?
         exit(1);
       }
 
@@ -779,7 +767,8 @@ PERFORMANCE OF THIS SOFTWARE.
       }
 
       if ((err = soundio_outstream_end_write(outstream))) {
-        fprintf(stderr, "%s\n", soundio_strerror(err));
+        fprintf(stderr, "1 end_write: %s\n", soundio_strerror(err));
+        // REVIEW pthread_exit?
         exit(1);
       }
 

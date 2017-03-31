@@ -14,6 +14,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
   struct SoundIoRingBuffer *ring_buffer = outstream->userdata;
   struct SoundIoChannelArea *areas;
   int frame_count;
+  int frames_left;
   int err;
 
   char *read_ptr = soundio_ring_buffer_read_ptr(ring_buffer);
@@ -22,12 +23,16 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 
   if (frame_count_min > fill_count) {
     // Ring buffer does not have enough data, fill with zeroes.
+    frames_left = frame_count_min;
     for (;;) {
+      frame_count = frames_left;
+      if (!frame_count)
+        return;
       if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
-        fprintf(stderr, "%s\n", soundio_strerror(err));
+        fprintf(stderr, "0 begin_write: %s\n", soundio_strerror(err));
         exit(1);
       }
-      if (frame_count <= 0)
+      if (!frame_count)
         return;
       for (int frame = 0; frame < frame_count; frame += 1) {
         for (int ch = 0; ch < outstream->layout.channel_count; ch += 1) {
@@ -36,20 +41,21 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
         }
       }
       if ((err = soundio_outstream_end_write(outstream))) {
-        fprintf(stderr, "%s\n", soundio_strerror(err));
+        fprintf(stderr, "0 end_write: %s\n", soundio_strerror(err));
         exit(1);
       }
+      frames_left -= frame_count;
     }
   }
 
   int read_count = frame_count_max < fill_count ? frame_count_max : fill_count;
-  int frames_left = read_count;
+  frames_left = read_count;
 
   while (frames_left > 0) {
     int frame_count = frames_left;
 
     if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
-      fprintf(stderr, "%s\n", soundio_strerror(err));
+      fprintf(stderr, "1 begin_write: %s\n", soundio_strerror(err));
       exit(1);
     }
 
@@ -65,7 +71,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
     }
 
     if ((err = soundio_outstream_end_write(outstream))) {
-      fprintf(stderr, "%s\n", soundio_strerror(err));
+      fprintf(stderr, "1 end_write: %s\n", soundio_strerror(err));
       exit(1);
     }
 

@@ -26,9 +26,9 @@
        (system (format "cl -c -DWIN32 ~a.c" bridge-name))
        (system (format "link -dll -out:~a ~a.obj" bridge-lib bridge-name)))]
     [(i3osx ti3osx a6osx ta6osx)
-     (system (format "cc -dynamiclib -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+     (system (format "cc -O3 -dynamiclib -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
     [(i3le ti3le a6le ta6le)
-     (system (format "cc -fPIC -shared -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+     (system (format "cc -O3 -fPIC -shared -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
     [else (error "soundio"
                  "don't know how to build bridge shared library on this machine-type"
                  (machine-type))]))
@@ -253,51 +253,9 @@
   [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void])
 ;; </ffi>
 (define-record-type soundio
-  (fields sio device out-stream write-callback-pointer underflow-callback-pointer))
-(define wrap-write-callback
-  (lambda (f)
-    (let ([timestamp 0])
-      (lambda (stream frame-count-min frame-count-max)
-        (let* ([layout (ftype-&ref SoundIoOutStream (layout) stream)]
-               [channel-count (ftype-ref SoundIoChannelLayout (channel_count) layout)]
-               [sample-rate (ftype-ref SoundIoOutStream (sample_rate) stream)]
-               [seconds-per-sample (inexact (/ 1 sample-rate))]
-               [areas (make-ftype-pointer
-                       *SoundIoChannelArea
-                       (foreign-alloc (ftype-sizeof *SoundIoChannelArea)))]
-               [frame-count (make-ftype-pointer int (foreign-alloc (ftype-sizeof int)))])
-          (let batch ([frames-left frame-count-max])
-            (ftype-set! int () frame-count frames-left)
-            (let ([err (soundio_outstream_begin_write
-                        stream
-                        areas
-                        frame-count)])
-              (if (not (zero? err))
-                  (exit))
-              (let* ([fc (ftype-ref int () frame-count)]
-                     [areas (ftype-ref *SoundIoChannelArea () areas)])
-                (if (not (zero? fc))
-                    (begin
-                      (do ([frame 0 (+ frame 1)])
-                          ((= frame fc) 0)
-                        (let ([t (* (+ timestamp frame) seconds-per-sample)])
-                          (do ([channel 0 (+ channel 1)])
-                              ((= channel channel-count) 0)
-                            (let ([ptr (ftype-ref SoundIoChannelArea (ptr) areas channel)]
-                                  [step (ftype-ref SoundIoChannelArea (step) areas channel)])
-                              (foreign-set! 'float (ftype-pointer-address ptr) (* step frame) (f t channel))))))
-                      (set! timestamp (+ timestamp fc))
-                      (if (not (zero? (soundio_outstream_end_write stream)))
-                          (exit))))
-                (if (< 0 (- frames-left fc))
-                    (batch (- frames-left fc))))))
-          (foreign-free (ftype-pointer-address frame-count)))))))
-(define wrap-underflow-callback
-  (lambda (f)
-    (lambda (stream)
-      (f))))
+  (fields sio device out-stream ring-buffer write-callback))
 (define open-default-out-stream
-  (lambda (write-callback underflow-callback)
+  (lambda (write-callback)
     (let ([sio (soundio_create)])
       (when (ftype-pointer-null? sio)
         (error "soundio_create" "out of memory"))
@@ -314,36 +272,79 @@
             (let ([out-stream (soundio_outstream_create device)])
               (when (ftype-pointer-null? out-stream)
                 (error "soundio_outstream_create" "out of memory"))
-              (let ([write-callback (wrap-write-callback write-callback)]
-                    [underflow-callback (wrap-underflow-callback underflow-callback)])
-                (let ([write-callback-pointer (make-ftype-pointer WriteCallback write-callback)]
-                      [underflow-callback-pointer (make-ftype-pointer UnderflowCallback underflow-callback)])
-                  (ftype-set! SoundIoOutStream (write_callback) out-stream write-callback-pointer)
-                  (ftype-set! SoundIoOutStream (underflow_callback) out-stream underflow-callback-pointer)
-                  (let ([err (soundio_outstream_open out-stream)])
+              (let* ([frame-size (ftype-sizeof float)] ;; FIXME support other sample formats
+                     ;; [channel-count (ftype-ref SoundIoOutStream (layout channel_count) out-stream)]
+                     [channel-count 2]
+                     ;; REVIEW
+                     [buffer-size 512]
+                     [ring-buffer (soundio_ring_buffer_create sio (* 3 buffer-size frame-size channel-count))])
+                (when (ftype-pointer-null? ring-buffer)
+                  (error "soundio_ring_buffer_create" "out of memory"))
+                (bridge_outstream_attach_ring_buffer out-stream ring-buffer)
+                (let ([err (soundio_outstream_open out-stream)])
+                  (when (not (zero? err))
+                    (error "soundio_outstream_open" (soundio_strerror err)))
+                  (let ([err (ftype-ref SoundIoOutStream (layout_error) out-stream)])
                     (when (not (zero? err))
-                      (error "soundio_outstream_open" (soundio_strerror err)))
-                    (let ([err (ftype-ref SoundIoOutStream (layout_error) out-stream)])
-                      (when (not (zero? err))
-                        (error "soundio_outstream_open" (soundio_strerror err))))
-                    (make-soundio sio device out-stream write-callback-pointer underflow-callback-pointer)
-                    )
-                  ))
+                      (error "soundio_outstream_open" (soundio_strerror err))))
+                  (make-soundio sio device out-stream ring-buffer write-callback)
+                  )
+                )
               )
             ))
         ))
     ))
 (define start-out-stream
   (lambda (soundio)
+    ;; FIXME convert into frame*channels count
+    ;; FIXME get channels of stream here
+    ;; FIXME support more sample types than just float
+    (fork-thread
+     (lambda ()
+       (let* (
+              [frame-size (ftype-sizeof float)]
+              [out-stream (soundio-out-stream soundio)]
+              ;; [channel-count (ftype-ref SoundIoOutStream (layout channel_count) out-stream)]
+              [channel-count 2]
+              [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
+              [seconds-per-sample (inexact (/ 1 sample-rate))]
+              [ring-buffer (soundio-ring-buffer soundio)]
+              [capacity (soundio_ring_buffer_capacity ring-buffer)]
+              [buffer-size (/ capacity frame-size channel-count)]
+              [write-callback (soundio-write-callback soundio)]
+              [polling-cycle (make-time 'time-duration 1000000 0)]
+              )
+         (let loop ([sample-number 0])
+           (let ([free-count (soundio_ring_buffer_free_count ring-buffer)])
+             (if (zero? free-count)
+                 (begin
+                   (sleep polling-cycle)
+                   (loop sample-number))
+                 (let ([free-frames (/ free-count frame-size channel-count)]
+                       [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
+                   (do ([frame 0 (+ frame 1)])
+                       ((= frame free-frames) 0)
+                     (do ([channel 0 (+ channel 1)])
+                         ((= channel channel-count) 0)
+                       (foreign-set!
+                        'float
+                        write-ptr
+                        (* (+ (* frame channel-count) channel) frame-size)
+                        (write-callback
+                         (* seconds-per-sample (+ sample-number frame))
+                         channel))
+                       ))
+                   (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
+                   (loop (+ sample-number free-frames)))))))))
     (soundio_outstream_start (soundio-out-stream soundio))))
 
 (define stop-out-stream
   (lambda (soundio)
+    ;; FIXME kill writing thread
     (soundio_outstream_stop (soundio-out-stream soundio))))
 (define teardown-out-stream
   (lambda (soundio)
     (soundio_outstream_destroy (soundio-out-stream soundio))
+    (soundio_ring_buffer_destroy (soundio-ring-buffer soundio))
     (soundio_device_unref (soundio-device soundio))
-    (soundio_destroy (soundio-sio soundio))
-    (unlock-ftype-pointer (soundio-write-callback-pointer soundio))
-    (unlock-ftype-pointer (soundio-underflow-callback-pointer soundio))))
+    (soundio_destroy (soundio-sio soundio))))
