@@ -92,8 +92,6 @@ int main(int argc, char **argv) {
     }
     outstream->format = SoundIoFormatFloat32NE;
     /* outstream->sample_rate = 44100; */
-    outstream->write_callback = write_callback;
-    outstream->underflow_callback = underflow_callback;
     /* outstream->software_latency = 0.025f; */
 
     if ((err = soundio_outstream_open(outstream))) {
@@ -102,9 +100,15 @@ int main(int argc, char **argv) {
     }
 
     if (outstream->layout_error)
-        fprintf(stderr, "unable to set channel layout: %s\n", soundio_strerror(outstream->layout_error));
+      fprintf(stderr, "unable to set channel layout: %s\n", soundio_strerror(outstream->layout_error));
+
+    outstream->write_callback = write_callback;
+    outstream->underflow_callback = underflow_callback;
 
     fprintf(stdout, "latency: %f\n", outstream->software_latency);
+    fprintf(stdout, "channe_count: %d\n", outstream->layout.channel_count);
+    fprintf(stdout, "sample_rate: %d\n", outstream->sample_rate);
+    fprintf(stdout, "buffer_size: %f\n", outstream->sample_rate * outstream->software_latency);
 
     if ((err = soundio_outstream_start(outstream))) {
         fprintf(stderr, "unable to start device: %s\n", soundio_strerror(err));
