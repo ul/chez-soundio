@@ -30,6 +30,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
         return;
       if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
         fprintf(stderr, "0 begin_write: %s\n", soundio_strerror(err));
+        // REVIEW pthread_exit?
         exit(1);
       }
       if (!frame_count)
@@ -42,6 +43,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
       }
       if ((err = soundio_outstream_end_write(outstream))) {
         fprintf(stderr, "0 end_write: %s\n", soundio_strerror(err));
+        // REVIEW pthread_exit?
         exit(1);
       }
       frames_left -= frame_count;
@@ -56,6 +58,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 
     if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
       fprintf(stderr, "1 begin_write: %s\n", soundio_strerror(err));
+      // REVIEW pthread_exit?
       exit(1);
     }
 
@@ -72,6 +75,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
 
     if ((err = soundio_outstream_end_write(outstream))) {
       fprintf(stderr, "1 end_write: %s\n", soundio_strerror(err));
+      // REVIEW pthread_exit?
       exit(1);
     }
 
