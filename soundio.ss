@@ -52,10 +52,10 @@
                        [channel-count (ftype-ref SoundIoOutStream (layout channel_count) out-stream)]
                        [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
                        [latency (ftype-ref SoundIoOutStream (software_latency) out-stream)]
-                       [buffer-size (* latency sample-rate)] ; in samples
+                       [buffer-size (exact (ceiling (* latency sample-rate)))] ; in samples
                        [buffer-capacity (* buffer-size frame-size channel-count)] ; in bytes
                        ;; REVIEW
-                       [ring-buffer (soundio_ring_buffer_create sio (exact (ceiling (* 2 buffer-capacity))))])
+                       [ring-buffer (soundio_ring_buffer_create sio buffer-capacity)])
                   (when (ftype-pointer-null? ring-buffer)
                     (error "soundio_ring_buffer_create" "out of memory"))
                   (bridge_outstream_attach_ring_buffer out-stream ring-buffer)

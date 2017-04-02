@@ -14,18 +14,18 @@
                       1))))
 
 (define write-callback (lambda (time channel)
-                         (let ([k 120]
+                         (let ([k 100]
                                [sample 0.0])
                            (do ([i 0 (+ i 1)]
                                 [sample 0.0 (+ sample (sine time (+ 440.0 i)))])
                                ((= i k) (/ sample k))))))
 
 (define square-callback (lambda (time channel)
-                          (let ([k 120]
+                          (let ([k 20]
                                 [sample 0.0])
                             (do ([i 0 (+ i 1)]
                                  [sample 0.0 (+ sample (square time (+ 440.0 i)))])
-                                ((= i k) (/ sample k))))))
+                                ((= i k) (/ sample k 2))))))
 
 (define my-out (open-default-out-stream write-callback))
 
