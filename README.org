@@ -651,7 +651,7 @@
 
 #+NAME: sine-example
 #+BEGIN_SRC scheme :tangle sine-example.ss :noweb yes :mkdirp yes :paddle no
-  (load "soundio.ss")
+  (import (prefix (chez-soundio soundio) soundio:))
 
   (define pi 3.1415926535)
 
@@ -680,9 +680,9 @@
                                    [sample 0.0 (+ sample (square time (+ 440.0 i)))])
                                   ((= i k) (/ sample k 2))))))
 
-  (define my-out (open-default-out-stream write-callback))
+  (define my-out (soundio:open-default-out-stream write-callback))
 
-  (start-out-stream my-out)
+  (soundio:start-out-stream my-out)
 
   ;; try hot swap!
   ;; (sound-out-write-callback-set! my-out square-callback)
@@ -722,7 +722,11 @@ PERFORMANCE OF THIS SOFTWARE.
 
 #+BEGIN_SRC scheme :tangle soundio.ss :noweb yes :mkdirp yes :paddle no
   (load "soundio-ffi.ss")
-  <<high-level-wrapper>>
+  (library (chez-soundio soundio (1))
+    (export open-default-out-stream start-out-stream stop-out-stream teardown-out-stream)
+    (import (chezscheme))
+    <<high-level-wrapper>>
+  )
 #+END_SRC
 
 #+BEGIN_SRC C :tangle bridge.c :noweb yes :mkdirp yes :paddle no

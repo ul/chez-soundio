@@ -1,4 +1,4 @@
-(load "soundio.ss")
+(import (prefix (chez-soundio soundio) soundio:))
 
 (define pi 3.1415926535)
 
@@ -27,9 +27,9 @@
                                  [sample 0.0 (+ sample (square time (+ 440.0 i)))])
                                 ((= i k) (/ sample k 2))))))
 
-(define my-out (open-default-out-stream write-callback))
+(define my-out (soundio:open-default-out-stream write-callback))
 
-(start-out-stream my-out)
+(soundio:start-out-stream my-out)
 
 ;; try hot swap!
 ;; (sound-out-write-callback-set! my-out square-callback)
