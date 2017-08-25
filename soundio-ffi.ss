@@ -1,4 +1,3 @@
-(import (chezscheme))
 (define unlock-ftype-pointer
   (lambda (fptr)
     (unlock-object
@@ -6,13 +5,14 @@
       (ftype-pointer-address fptr)))))
 ;; <ffi>
 ;; <load-library>
-(case (machine-type)
-  [(i3nt ti3nt a6nt ta6nt) (load-shared-object "libsoundio.dll")]
-  [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libsoundio.dylib")]
-  [(i3le ti3le a6le ta6le) (load-shared-object "libsoundio.so")]
-  [else (error "soundio"
-               "don't know how libsoundio shared library file is called on this machine-type"
-               (machine-type))])
+(define init-ffi
+  (case (machine-type)
+    [(i3nt ti3nt a6nt ta6nt) (load-shared-object "libsoundio.dll")]
+    [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libsoundio.dylib")]
+    [(i3le ti3le a6le ta6le) (load-shared-object "libsoundio.so")]
+    [else (error "soundio"
+                 "don't know how libsoundio shared library file is called on this machine-type"
+                 (machine-type))]))
 ;; </load-library>
 ;; <ftypes>
 (define-ftype

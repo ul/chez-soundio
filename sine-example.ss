@@ -1,4 +1,4 @@
-(import (prefix (chez-soundio soundio) soundio:))
+(import (prefix (soundio) soundio:))
 
 (define pi 3.1415926535)
 
