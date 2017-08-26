@@ -1,5 +1,9 @@
 (library (soundio (1))
-  (export open-default-out-stream start-out-stream stop-out-stream teardown-out-stream)
+  (export open-default-out-stream
+          start-out-stream
+          stop-out-stream
+          teardown-out-stream
+          sound-out-write-callback-set!)
   (import (chezscheme))
   (include "soundio-ffi.ss")
   ;; <build-bridge>

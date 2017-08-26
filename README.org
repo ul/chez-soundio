@@ -725,7 +725,11 @@ PERFORMANCE OF THIS SOFTWARE.
 
 #+BEGIN_SRC scheme :tangle soundio.ss :noweb yes :mkdirp yes :paddle no
   (library (soundio (1))
-    (export open-default-out-stream start-out-stream stop-out-stream teardown-out-stream)
+    (export open-default-out-stream
+            start-out-stream
+            stop-out-stream
+            teardown-out-stream
+            sound-out-write-callback-set!)
     (import (chezscheme))
     (include "soundio-ffi.ss")
     <<high-level-wrapper>>
