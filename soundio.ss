@@ -89,7 +89,7 @@
          (lambda ()
            (let loop ()
              (when (sound-out-write-thread sound-out)
-               (let ([write-callback (sound-out-write-callback sound-out)]
+               (let ([write-callback (eval (sound-out-write-callback sound-out))]
                      [sample-number (sound-out-sample-number sound-out)]
                      [free-count (soundio_ring_buffer_free_count ring-buffer)])
                  (if (zero? free-count)

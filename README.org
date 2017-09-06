@@ -566,7 +566,7 @@
          (lambda ()
            (let loop ()
              (when (sound-out-write-thread sound-out)
-               (let ([write-callback (sound-out-write-callback sound-out)]
+               (let ([write-callback (eval (sound-out-write-callback sound-out))]
                      [sample-number (sound-out-sample-number sound-out)]
                      [free-count (soundio_ring_buffer_free_count ring-buffer)])
                  (if (zero? free-count)
@@ -684,7 +684,7 @@
                                    [sample 0.0 (+ sample (square time (+ 440.0 i)))])
                                   ((= i k) (/ sample k 2))))))
 
-  (define my-out (soundio:open-default-out-stream write-callback))
+  (define my-out (soundio:open-default-out-stream 'write-callback))
 
   (soundio:start-out-stream my-out)
 
