@@ -584,7 +584,7 @@
                             write-ptr
                             (* (+ (* frame channel-count) channel) frame-size)
                             (write-callback
-                             (* seconds-per-sample (+ sample-number frame))
+                             (fl* seconds-per-sample (fixnum->flonum (+ sample-number frame)))
                              channel))))
                        (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
                        (sound-out-sample-number-set! sound-out (+ sample-number free-frames))
