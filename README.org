@@ -427,7 +427,12 @@
 #+NAME: sound-out-record
 #+BEGIN_SRC scheme
   (define-record-type sound-out
-    (fields stream ring-buffer (mutable write-callback) (mutable write-thread) (mutable sample-number)))
+    (fields stream
+            ring-buffer
+            (mutable write-callback)
+            (mutable write-thread)
+            (mutable sample-number)
+            (mutable time)))
 #+END_SRC
 
   Next step is to encapsulate all initialization routines.
@@ -447,7 +452,7 @@
 
 #+NAME: make-sound-out
 #+BEGIN_SRC scheme
-  (make-sound-out out-stream ring-buffer write-callback #f 0)
+  (make-sound-out out-stream ring-buffer write-callback #f 0 0.0)
 #+END_SRC
 
   Callbacks are set before stream start. We don't want user to bother with
@@ -587,7 +592,11 @@
                              (fl* seconds-per-sample (fixnum->flonum (+ sample-number frame)))
                              channel))))
                        (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
-                       (sound-out-sample-number-set! sound-out (+ sample-number free-frames))
+                       (let ([sample-number (+ sample-number free-frames)])
+                         (sound-out-sample-number-set! sound-out sample-number)
+                         (sound-out-time-set! sound-out
+                                              (fl* seconds-per-sample
+                                                   (fixnum->flonum sample-number))))
                        (loop))))))))
         (soundio_outstream_start out-stream))))
 
@@ -729,6 +738,7 @@ PERFORMANCE OF THIS SOFTWARE.
             start-out-stream
             stop-out-stream
             teardown-out-stream
+            sound-out-time
             sound-out-write-callback-set!)
     (import (chezscheme))
     (include "soundio-ffi.ss")

@@ -3,6 +3,7 @@
           start-out-stream
           stop-out-stream
           teardown-out-stream
+          sound-out-time
           sound-out-write-callback-set!)
   (import (chezscheme))
   (include "soundio-ffi.ss")
@@ -32,7 +33,12 @@
   (define-foreign-procedure
     [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void])
   (define-record-type sound-out
-    (fields stream ring-buffer (mutable write-callback) (mutable write-thread) (mutable sample-number)))
+    (fields stream
+            ring-buffer
+            (mutable write-callback)
+            (mutable write-thread)
+            (mutable sample-number)
+            (mutable time)))
   (define open-default-out-stream
     (lambda (write-callback)
       (let ([sio (soundio_create)])
@@ -68,7 +74,7 @@
                     (when (ftype-pointer-null? ring-buffer)
                       (error "soundio_ring_buffer_create" "out of memory"))
                     (bridge_outstream_attach_ring_buffer out-stream ring-buffer)
-                    (make-sound-out out-stream ring-buffer write-callback #f 0)
+                    (make-sound-out out-stream ring-buffer write-callback #f 0 0.0)
                     )
                   )
                 )
@@ -110,7 +116,11 @@
                              (fl* seconds-per-sample (fixnum->flonum (+ sample-number frame)))
                              channel))))
                        (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
-                       (sound-out-sample-number-set! sound-out (+ sample-number free-frames))
+                       (let ([sample-number (+ sample-number free-frames)])
+                         (sound-out-sample-number-set! sound-out sample-number)
+                         (sound-out-time-set! sound-out
+                                              (fl* seconds-per-sample
+                                                   (fixnum->flonum sample-number))))
                        (loop))))))))
         (soundio_outstream_start out-stream))))
   
