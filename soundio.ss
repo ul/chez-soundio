@@ -4,6 +4,8 @@
           stop-out-stream
           teardown-out-stream
           sound-out-time
+          sound-out-sample-rate
+          sound-out-channel-count
           sound-out-write-callback-set!)
   (import (chezscheme))
   (include "soundio-ffi.ss")
@@ -35,6 +37,8 @@
   (define-record-type sound-out
     (fields stream
             ring-buffer
+            channel-count
+            sample-rate
             (mutable write-callback)
             (mutable write-thread)
             (mutable sample-number)
@@ -74,7 +78,19 @@
                     (when (ftype-pointer-null? ring-buffer)
                       (error "soundio_ring_buffer_create" "out of memory"))
                     (bridge_outstream_attach_ring_buffer out-stream ring-buffer)
-                    (make-sound-out out-stream ring-buffer write-callback #f 0 0.0)
+                    (printf "Channels:\t~s\r\n" channel-count)
+                    (printf "Sample rate:\t~s\r\n" sample-rate)
+                    (printf "Latency:\t~s\r\n" latency)
+                    (printf "Buffer:\t\t~s\r\n" buffer-size)
+                    (make-sound-out
+                     out-stream
+                     ring-buffer
+                     channel-count
+                     sample-rate
+                     write-callback
+                     #f
+                     0
+                     0.0)
                     )
                   )
                 )
@@ -87,7 +103,7 @@
              [out-stream (sound-out-stream sound-out)]
              [channel-count (ftype-ref SoundIoOutStream (layout channel_count) out-stream)]
              [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
-             [seconds-per-sample (inexact (/ 1 sample-rate))]
+             [seconds-per-sample (inexact (/ sample-rate))]
              [ring-buffer (sound-out-ring-buffer sound-out)]
              [polling-cycle (make-time 'time-duration 1000000 0)])
         (sound-out-write-thread-set! sound-out #t)
@@ -106,28 +122,27 @@
                            [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
                        (do ([frame 0 (+ frame 1)])
                            ((= frame free-frames) 0)
-                         (do ([channel 0 (+ channel 1)])
-                             ((= channel channel-count) 0)
-                           (foreign-set!
-                            'float
-                            write-ptr
-                            (* (+ (* frame channel-count) channel) frame-size)
-                            (write-callback
-                             (fl* seconds-per-sample (fixnum->flonum (+ sample-number frame)))
-                             channel))))
+                         (let* ([sample-number (+ sample-number frame)]
+                                [time (fl* (fixnum->flonum (+ sample-number frame)) seconds-per-sample)])
+                           (do ([channel 0 (+ channel 1)])
+                               ((= channel channel-count) 0)
+                             (foreign-set!
+                              'float
+                              write-ptr
+                              (* (+ (* frame channel-count) channel) frame-size)
+                              (write-callback time channel))
+                             (sound-out-time-set! sound-out time)
+                             )))
                        (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
-                       (let ([sample-number (+ sample-number free-frames)])
-                         (sound-out-sample-number-set! sound-out sample-number)
-                         (sound-out-time-set! sound-out
-                                              (fl* seconds-per-sample
-                                                   (fixnum->flonum sample-number))))
-                       (loop))))))))
+                       (sound-out-sample-number-set! sound-out (+ sample-number free-frames))
+                       (loop))
+                     ))))))
         (soundio_outstream_start out-stream))))
   
   (define stop-out-stream
     (lambda (sound-out)
       (sound-out-write-thread-set! sound-out #f)
-      ;(soundio_outstream_pause (sound-out-stream sound-out) #t)
+      ;; (soundio_outstream_pause (sound-out-stream sound-out) #t)
       ))
   (define teardown-out-stream
     (lambda (sound-out)
