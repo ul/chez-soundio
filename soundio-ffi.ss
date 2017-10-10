@@ -135,19 +135,18 @@
   ;; </ftype-structs>
 )
 ;; </ftypes>
-(define-syntax define-foreign-procedure
-  (lambda (x)
-    (syntax-case x ()
-      [(_ [name args result])
-       #`(define name
-           (foreign-procedure
-            #,(symbol->string (syntax->datum #'name))
-            args
-            result))]
-      [(_ e ...)
-       #'(begin
-           (define-foreign-procedure e)
-           ...)])))
+(define-syntax (define-foreign-procedure stx)
+  (syntax-case stx ()
+    [(_ [name args result])
+     #`(define name
+         (foreign-procedure
+          #,(symbol->string (syntax->datum #'name))
+          args
+          result))]
+    [(_ e ...)
+     #'(begin
+         (define-foreign-procedure e)
+         ...)]))
 (define-foreign-procedure
   [soundio_backend_count ((* SoundIo)) int]
   [soundio_backend_name (SoundIoBackend) int]

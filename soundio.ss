@@ -123,7 +123,7 @@
                        (do ([frame 0 (+ frame 1)])
                            ((= frame free-frames) 0)
                          (let* ([sample-number (+ sample-number frame)]
-                                [time (fl* (fixnum->flonum (+ sample-number frame)) seconds-per-sample)])
+                                [time (fl* (fixnum->flonum sample-number) seconds-per-sample)])
                            (do ([channel 0 (+ channel 1)])
                                ((= channel channel-count) 0)
                              (foreign-set!

@@ -256,19 +256,18 @@
 
 #+NAME: define-foreign-procedure
 #+BEGIN_SRC scheme
-  (define-syntax define-foreign-procedure
-    (lambda (x)
-      (syntax-case x ()
-        [(_ [name args result])
-         #`(define name
-             (foreign-procedure
-              #,(symbol->string (syntax->datum #'name))
-              args
-              result))]
-        [(_ e ...)
-         #'(begin
-             (define-foreign-procedure e)
-             ...)])))
+  (define-syntax (define-foreign-procedure stx)
+    (syntax-case stx ()
+      [(_ [name args result])
+       #`(define name
+           (foreign-procedure
+            #,(symbol->string (syntax->datum #'name))
+            args
+            result))]
+      [(_ e ...)
+       #'(begin
+           (define-foreign-procedure e)
+           ...)]))
 #+END_SRC
 
 #+NAME: foreign-procedures
@@ -597,7 +596,7 @@
                        (do ([frame 0 (+ frame 1)])
                            ((= frame free-frames) 0)
                          (let* ([sample-number (+ sample-number frame)]
-                                [time (fl* (fixnum->flonum (+ sample-number frame)) seconds-per-sample)])
+                                [time (fl* (fixnum->flonum sample-number) seconds-per-sample)])
                            (do ([channel 0 (+ channel 1)])
                                ((= channel channel-count) 0)
                              (foreign-set!
