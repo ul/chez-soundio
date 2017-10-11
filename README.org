@@ -420,7 +420,8 @@
 #+NAME: bridge-ffi
 #+BEGIN_SRC scheme
   (define-foreign-procedure
-    [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void])
+    [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void]
+    [usleep (long long) void])
 #+END_SRC
 
 #+NAME: sound-out-record
@@ -578,7 +579,7 @@
              [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
              [seconds-per-sample (inexact (/ sample-rate))]
              [ring-buffer (sound-out-ring-buffer sound-out)]
-             [polling-cycle (make-time 'time-duration 1000000 0)])
+             [polling-usec 1000])
         (sound-out-write-thread-set! sound-out #t)
         (fork-thread
          (lambda ()
@@ -589,7 +590,7 @@
                      [free-count (soundio_ring_buffer_free_count ring-buffer)])
                  (if (zero? free-count)
                      (begin
-                       (sleep polling-cycle)
+                       (usleep 0 polling-usec)
                        (loop))
                      (let ([free-frames (/ free-count frame-size channel-count)]
                            [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
@@ -753,13 +754,15 @@ PERFORMANCE OF THIS SOFTWARE.
             sound-out-time
             sound-out-sample-rate
             sound-out-channel-count
-            sound-out-write-callback-set!)
+            sound-out-write-callback-set!
+            usleep)
     (import (chezscheme))
     (include "soundio-ffi.ss")
     <<high-level-wrapper>>
   )
 #+END_SRC
 
+#+NAME: bridge.c
 #+BEGIN_SRC C :tangle bridge.c :noweb yes :mkdirp yes :paddle no
   #ifdef WIN32
   #define EXPORT extern __declspec (dllexport)
@@ -767,6 +770,7 @@ PERFORMANCE OF THIS SOFTWARE.
   #define EXPORT extern
   #endif
 
+  #include <sys/select.h>
   #include <soundio/soundio.h>
   #include <stdio.h>
   #include <stdlib.h>
@@ -853,5 +857,12 @@ PERFORMANCE OF THIS SOFTWARE.
     outstream->format = SoundIoFormatFloat32NE;
     outstream->userdata = buffer;
     outstream->write_callback = write_callback;
+  }
+
+  EXPORT void usleep (long sec, long usec) {
+    struct timeval tv;
+    tv.tv_sec = sec;
+    tv.tv_usec = usec;
+    select(0, NULL, NULL, NULL, &tv);
   }
 #+END_SRC

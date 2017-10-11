@@ -4,6 +4,7 @@
 #define EXPORT extern
 #endif
 
+#include <sys/select.h>
 #include <soundio/soundio.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,4 +91,11 @@ EXPORT void bridge_outstream_attach_ring_buffer
   outstream->format = SoundIoFormatFloat32NE;
   outstream->userdata = buffer;
   outstream->write_callback = write_callback;
+}
+
+EXPORT void usleep (long sec, long usec) {
+  struct timeval tv;
+  tv.tv_sec = sec;
+  tv.tv_usec = usec;
+  select(0, NULL, NULL, NULL, &tv);
 }

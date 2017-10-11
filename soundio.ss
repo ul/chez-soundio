@@ -6,7 +6,8 @@
           sound-out-time
           sound-out-sample-rate
           sound-out-channel-count
-          sound-out-write-callback-set!)
+          sound-out-write-callback-set!
+          usleep)
   (import (chezscheme))
   (include "soundio-ffi.ss")
   ;; <build-bridge>
@@ -33,7 +34,8 @@
       (load-shared-object bridge-lib)))
   ;; </build-bridge>
   (define-foreign-procedure
-    [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void])
+    [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void]
+    [usleep (long long) void])
   (define-record-type sound-out
     (fields stream
             ring-buffer
@@ -105,7 +107,7 @@
              [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
              [seconds-per-sample (inexact (/ sample-rate))]
              [ring-buffer (sound-out-ring-buffer sound-out)]
-             [polling-cycle (make-time 'time-duration 1000000 0)])
+             [polling-usec 1000])
         (sound-out-write-thread-set! sound-out #t)
         (fork-thread
          (lambda ()
@@ -116,7 +118,7 @@
                      [free-count (soundio_ring_buffer_free_count ring-buffer)])
                  (if (zero? free-count)
                      (begin
-                       (sleep polling-cycle)
+                       (usleep 0 polling-usec)
                        (loop))
                      (let ([free-frames (/ free-count frame-size channel-count)]
                            [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
