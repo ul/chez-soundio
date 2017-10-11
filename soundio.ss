@@ -3,7 +3,6 @@
           start-out-stream
           stop-out-stream
           teardown-out-stream
-          sound-out-time
           sound-out-sample-rate
           sound-out-channel-count
           sound-out-write-callback-set!
@@ -42,9 +41,7 @@
             channel-count
             sample-rate
             (mutable write-callback)
-            (mutable write-thread)
-            (mutable sample-number)
-            (mutable time)))
+            (mutable write-thread)))
   (define open-default-out-stream
     (lambda (write-callback)
       (let ([sio (soundio_create)])
@@ -90,9 +87,7 @@
                      channel-count
                      sample-rate
                      write-callback
-                     #f
-                     0
-                     0.0)
+                     #f)
                     )
                   )
                 )
@@ -107,14 +102,14 @@
              [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
              [seconds-per-sample (inexact (/ sample-rate))]
              [ring-buffer (sound-out-ring-buffer sound-out)]
-             [polling-usec 1000])
+             [polling-usec 1000]
+             [sample-number 0])
         (sound-out-write-thread-set! sound-out #t)
         (fork-thread
          (lambda ()
            (let loop ()
              (when (sound-out-write-thread sound-out)
                (let ([write-callback (sound-out-write-callback sound-out)]
-                     [sample-number (sound-out-sample-number sound-out)]
                      [free-count (soundio_ring_buffer_free_count ring-buffer)])
                  (if (zero? free-count)
                      (begin
@@ -133,10 +128,9 @@
                               write-ptr
                               (* (+ (* frame channel-count) channel) frame-size)
                               (write-callback time channel))
-                             (sound-out-time-set! sound-out time)
                              )))
                        (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
-                       (sound-out-sample-number-set! sound-out (+ sample-number free-frames))
+                       (set! sample-number (+ sample-number free-frames))
                        (loop))
                      ))))))
         (soundio_outstream_start out-stream))))
