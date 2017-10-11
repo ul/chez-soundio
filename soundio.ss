@@ -24,7 +24,7 @@
              (system (format "cl -c -DWIN32 ~a.c" bridge-name))
              (system (format "link -dll -out:~a ~a.obj" bridge-lib bridge-name)))]
           [(i3osx ti3osx a6osx ta6osx)
-           (system (format "cc -O3 -dynamiclib -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
+           (system (format "cc -O3 -dynamiclib -Wl,-undefined -Wl,dynamic_lookup -I/usr/local/lib/csv9.4.1/ta6osx -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
           [(i3le ti3le a6le ta6le)
            (system (format "cc -O3 -fPIC -shared -lsoundio -o ~a ~a.c" bridge-lib bridge-name))]
           [else (error "soundio"

@@ -11,6 +11,8 @@
 #include <string.h>
 #include <math.h>
 
+#include "scheme.h"
+
 static void write_callback(struct SoundIoOutStream *outstream, int frame_count_min, int frame_count_max) {
   struct SoundIoRingBuffer *ring_buffer = outstream->userdata;
   struct SoundIoChannelArea *areas;
@@ -97,5 +99,7 @@ EXPORT void usleep (long sec, long usec) {
   struct timeval tv;
   tv.tv_sec = sec;
   tv.tv_usec = usec;
+  Sdeactivate_thread();
   select(0, NULL, NULL, NULL, &tv);
+  Sactivate_thread();
 }
