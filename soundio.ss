@@ -94,6 +94,11 @@
               ))
           ))
       ))
+  (define-syntax try
+    (syntax-rules ()
+      [(_ e1 e2 ...)
+       (guard (x [else 0.0]) e1 e2 ...)]))
+  
   (define start-out-stream
     (lambda (sound-out)
       (let* ([frame-size (ftype-sizeof float)]
@@ -127,7 +132,7 @@
                               'float
                               write-ptr
                               (* (+ (* frame channel-count) channel) frame-size)
-                              (write-callback time channel))
+                              (try (write-callback time channel)))
                              )))
                        (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
                        (set! sample-number (+ sample-number free-frames))
