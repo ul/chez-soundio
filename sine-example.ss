@@ -30,6 +30,3 @@
 (define my-out (soundio:open-default-out-stream write-callback))
 
 (soundio:start-out-stream my-out)
-
-;; try hot swap!
-;; (sound-out-write-callback-set! my-out square-callback)

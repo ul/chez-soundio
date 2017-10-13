@@ -1,8 +1,11 @@
-(define unlock-ftype-pointer
-  (lambda (fptr)
-    (unlock-object
-     (foreign-callable-code-object
-      (ftype-pointer-address fptr)))))
+;; <helpers>
+;; <unlock-ftype-pointer>
+(define (unlock-ftype-pointer fptr)
+  (unlock-object
+   (foreign-callable-code-object
+    (ftype-pointer-address fptr))))
+;; </unlock-ftype-pointer>
+;; </helpers>
 ;; <ffi>
 ;; <load-library>
 (define init-ffi

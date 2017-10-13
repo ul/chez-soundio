@@ -13,6 +13,7 @@
 
 #include "scheme.h"
 
+// <write_callback>
 static void write_callback(struct SoundIoOutStream *outstream, int frame_count_min, int frame_count_max) {
   struct SoundIoRingBuffer *ring_buffer = outstream->userdata;
   struct SoundIoChannelArea *areas;
@@ -25,17 +26,20 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
   int fill_count = fill_bytes / outstream->bytes_per_frame;
 
   if (frame_count_min > fill_count) {
-    // Ring buffer does not have enough data, fill with zeroes.
+    // <fill-stream-with-zeros>
     frames_left = frame_count_min;
     for (;;) {
       frame_count = frames_left;
       if (!frame_count)
         return;
+    
+      // <begin-write>
       if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
-        fprintf(stderr, "0 begin_write: %s\n", soundio_strerror(err));
-        // REVIEW pthread_exit?
+        fprintf(stderr, "begin_write: %s\n", soundio_strerror(err));
         exit(1);
       }
+      // </begin-write>
+    
       if (!frame_count)
         return;
       for (int frame = 0; frame < frame_count; frame += 1) {
@@ -44,30 +48,37 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
           areas[ch].ptr += areas[ch].step;
         }
       }
+    
+      // <end-write>
       if ((err = soundio_outstream_end_write(outstream))) {
-        fprintf(stderr, "0 end_write: %s\n", soundio_strerror(err));
+        fprintf(stderr, "end_write: %s\n", soundio_strerror(err));
         // REVIEW pthread_exit?
         exit(1);
       }
+      // </end-write>
+    
       frames_left -= frame_count;
     }
+    // </fill-stream-with-zeros>
   }
 
+  // <copy-samples-from-buffer>
   int read_count = frame_count_max < fill_count ? frame_count_max : fill_count;
   frames_left = read_count;
-
+  
   while (frames_left > 0) {
     int frame_count = frames_left;
-
+  
+    // <begin-write>
     if ((err = soundio_outstream_begin_write(outstream, &areas, &frame_count))) {
-      fprintf(stderr, "1 begin_write: %s\n", soundio_strerror(err));
-      // REVIEW pthread_exit?
+      fprintf(stderr, "begin_write: %s\n", soundio_strerror(err));
       exit(1);
     }
-
+    // </begin-write>
+  
     if (frame_count <= 0)
       break;
-
+  
     for (int frame = 0; frame < frame_count; frame += 1) {
       for (int ch = 0; ch < outstream->layout.channel_count; ch += 1) {
         memcpy(areas[ch].ptr, read_ptr, outstream->bytes_per_sample);
@@ -75,31 +86,37 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
         read_ptr += outstream->bytes_per_sample;
       }
     }
-
+  
+    // <end-write>
     if ((err = soundio_outstream_end_write(outstream))) {
-      fprintf(stderr, "1 end_write: %s\n", soundio_strerror(err));
+      fprintf(stderr, "end_write: %s\n", soundio_strerror(err));
       // REVIEW pthread_exit?
       exit(1);
     }
-
+    // </end-write>
+  
     frames_left -= frame_count;
   }
+  // </copy-samples-from-buffer>
 
   soundio_ring_buffer_advance_read_ptr(ring_buffer, read_count * outstream->bytes_per_frame);
 }
-
+// </write_callback>
+// <bridge_outstream_attach_ring_buffer>
 EXPORT void bridge_outstream_attach_ring_buffer
 (struct SoundIoOutStream *outstream, struct SoundIoRingBuffer *buffer) {
   outstream->format = SoundIoFormatFloat32NE;
   outstream->userdata = buffer;
   outstream->write_callback = write_callback;
 }
-
-EXPORT void usleep (long sec, long usec) {
-  struct timeval tv;
-  tv.tv_sec = sec;
-  tv.tv_usec = usec;
+// </bridge_outstream_attach_ring_buffer>
+// <usleep>
+EXPORT void usleep (long seconds, long microseconds) {
+  struct timeval timeout;
+  timeout.tv_sec = seconds;
+  timeout.tv_usec = microseconds;
   Sdeactivate_thread();
-  select(0, NULL, NULL, NULL, &tv);
+  select(0, NULL, NULL, NULL, &timeout);
   Sactivate_thread();
 }
+// </usleep>
