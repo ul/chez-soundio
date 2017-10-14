@@ -124,37 +124,37 @@
            [sample-rate (ftype-ref SoundIoOutStream (sample_rate) out-stream)]
            [seconds-per-sample (inexact (/ sample-rate))]
            [ring-buffer (sound-out-ring-buffer sound-out)]
-           [write-callback (sound-out-write-callback sound-out)]
            [polling-microseconds 1000]
            [sample-number 0])
       (sound-out-write-thread-set! sound-out (get-thread-id))
       (fork-thread
        (lambda ()
          (let loop ()
-           (when (sound-out-write-thread sound-out)
-             (let ([free-count (soundio_ring_buffer_free_count ring-buffer)])
-               (if (zero? free-count)
-                   (begin
-                     (usleep 0 polling-microseconds)
-                     (loop))
-                   (let ([free-frames (/ free-count frame-size channel-count)]
-                         [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
-                     (do ([frame 0 (+ frame 1)])
-                         ((= frame free-frames) 0)
-                       (let* ([sample-number (+ sample-number frame)]
-                              [time (fl* (fixnum->flonum sample-number) seconds-per-sample)])
-                         (do ([channel 0 (+ channel 1)])
-                             ((= channel channel-count) 0)
-                           (foreign-set!
-                            'float
-                            write-ptr
-                            (* (+ (* frame channel-count) channel) frame-size)
-                            (write-callback time channel))
-                           )))
-                     (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
-                     (set! sample-number (+ sample-number free-frames))
-                     (loop))
-                   ))))))
+           (let ([write-callback (sound-out-write-callback sound-out)])
+             (when (sound-out-write-thread sound-out)
+               (let ([free-count (soundio_ring_buffer_free_count ring-buffer)])
+                 (if (zero? free-count)
+                     (begin
+                       (usleep 0 polling-microseconds)
+                       (loop))
+                     (let ([free-frames (/ free-count frame-size channel-count)]
+                           [write-ptr (ftype-pointer-address (soundio_ring_buffer_write_ptr ring-buffer))])
+                       (do ([frame 0 (+ frame 1)])
+                           ((= frame free-frames) 0)
+                         (let* ([sample-number (+ sample-number frame)]
+                                [time (fl* (fixnum->flonum sample-number) seconds-per-sample)])
+                           (do ([channel 0 (+ channel 1)])
+                               ((= channel channel-count) 0)
+                             (foreign-set!
+                              'float
+                              write-ptr
+                              (* (+ (* frame channel-count) channel) frame-size)
+                              (write-callback time channel))
+                             )))
+                       (soundio_ring_buffer_advance_write_ptr ring-buffer free-count)
+                       (set! sample-number (+ sample-number free-frames))
+                       (loop))
+                     )))))))
       (soundio_outstream_start out-stream)))
   ;; </start-out-stream>
   ;; <stop-out-stream>
