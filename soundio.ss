@@ -13,7 +13,7 @@
   ;; <bridge-paths>
   (define bridge-source-filename "bridge.c")
   (define bridge-library-filename "libbridge.so")
-  (define scheme-headers-path (format "/usr/local/lib/csv9.4.1/~a" (machine-type)))
+  (define scheme-headers-path (format "/usr/local/lib/csv9.5.1/~a" (machine-type)))
   ;; </bridge-paths>
   (define init-bridge
     (begin
@@ -35,7 +35,7 @@
                            bridge-library-filename
                            bridge-source-filename))]
           [(i3le ti3le a6le ta6le)
-           (system (format "cc -O3 -fPIC -shared -Wl,-undefined -Wl,dynamic_lookup -I/usr/local/lib/csv9.4.1/~a -lsoundio -o ~a ~a.c"
+           (system (format "cc -O3 -fPIC -shared -Wl,-undefined -Wl,dynamic_lookup -I~a -lsoundio -o ~a ~a.c"
                            scheme-headers-path
                            bridge-library-filename
                            bridge-source-filename))]
