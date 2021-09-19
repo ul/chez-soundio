@@ -39,6 +39,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
         exit(1);
       }
       // </begin-write>
+
     
       if (!frame_count)
         return;
@@ -56,10 +57,12 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
         exit(1);
       }
       // </end-write>
+
     
       frames_left -= frame_count;
     }
     // </fill-stream-with-zeros>
+
   }
 
   // <copy-samples-from-buffer>
@@ -75,6 +78,7 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
       exit(1);
     }
     // </begin-write>
+
   
     if (frame_count <= 0)
       break;
@@ -94,14 +98,17 @@ static void write_callback(struct SoundIoOutStream *outstream, int frame_count_m
       exit(1);
     }
     // </end-write>
+
   
     frames_left -= frame_count;
   }
   // </copy-samples-from-buffer>
 
+
   soundio_ring_buffer_advance_read_ptr(ring_buffer, read_count * outstream->bytes_per_frame);
 }
 // </write_callback>
+
 // <bridge_outstream_attach_ring_buffer>
 EXPORT void bridge_outstream_attach_ring_buffer
 (struct SoundIoOutStream *outstream, struct SoundIoRingBuffer *buffer) {
@@ -110,6 +117,7 @@ EXPORT void bridge_outstream_attach_ring_buffer
   outstream->write_callback = write_callback;
 }
 // </bridge_outstream_attach_ring_buffer>
+
 // <usleep>
 EXPORT void usleep (long seconds, long microseconds) {
   struct timeval timeout;
@@ -120,3 +128,4 @@ EXPORT void usleep (long seconds, long microseconds) {
   Sactivate_thread();
 }
 // </usleep>
+

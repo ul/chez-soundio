@@ -5,18 +5,21 @@
    (foreign-callable-code-object
     (ftype-pointer-address fptr))))
 ;; </unlock-ftype-pointer>
+
 ;; </helpers>
+
 ;; <ffi>
 ;; <load-library>
 (define init-ffi
   (case (machine-type)
     [(i3nt ti3nt a6nt ta6nt) (load-shared-object "libsoundio.dll")]
-    [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libsoundio.dylib")]
+    [(i3osx ti3osx a6osx ta6osx tarm64osx) (load-shared-object "libsoundio.dylib")]
     [(i3le ti3le a6le ta6le) (load-shared-object "libsoundio.so")]
     [else (error "soundio"
                  "don't know how libsoundio shared library file is called on this machine-type"
                  (machine-type))]))
 ;; </load-library>
+
 ;; <ftypes>
 (define-ftype
   ;; <ftype-enums>
@@ -25,6 +28,7 @@
   [SoundIoFormat int]
   [SoundIoDeviceAim int]
   ;; </ftype-enums>
+
   ;; <ftype-callbacks>
   [OnDeviceChangeCallback (function ((* SoundIo)) void)]
   [OnBackendDisconnectCallback (function ((* SoundIo) int) void)]
@@ -38,6 +42,7 @@
   [OverflowCallback (function ((* SoundIoInStream)) void)]
   [ErrorCallback (function ((* SoundIoOutStream) int) void)]
   ;; </ftype-callbacks>
+
   ;; <ftype-structs>
   [SoundIo
    (struct
@@ -51,6 +56,7 @@
     [jack_info_callback (* JackInfoCallback)] ; Optional: JACK info callback.
     [jack_error_callback (* JackErrorCallback)] ; Optional: JACK error callback.
     )]
+
   [SoundIoChannelArea
    (struct
     [ptr (* char)]
@@ -59,6 +65,7 @@
   ;; nested * or its alias doesn't work:
   ;; Exception: invalid (non-base) foreign-procedure argument ftype **SoundIoChannelArea
   [*SoundIoChannelArea (* SoundIoChannelArea)]
+
   [SoundIoChannelLayout
    (struct
      [name (* char)]
@@ -66,6 +73,7 @@
      ;; #define SOUNDIO_MAX_CHANNELS 24
      ;; http://libsound.io/doc-1.1.0/soundio_8h.html#a1bf1282c5d903085916f8ed6af174bdd
      [channels (array 24 SoundIoChannelId)])]
+
   [SoundIoDevice
    (struct
     [soundio (* SoundIo)]
@@ -87,6 +95,7 @@
     [is_raw boolean]
     [ref_count int]
     [probe_error int])]
+
   [SoundIoInStream
    (struct
      [device (* SoundIoDevice)]
@@ -103,6 +112,7 @@
      [bytes_per_frame int]
      [bytes_per_sample int]
      [layout_error int])]
+
   [SoundIoOutStream
    (struct
      [device (* SoundIoDevice)]
@@ -110,6 +120,7 @@
      [sample_rate int]
      [layout SoundIoChannelLayout]
      [software_latency double]
+     [volume float]
      [userdata void*]
      [write_callback (* WriteCallback)]
      [underflow_callback (* UnderflowCallback)]
@@ -119,25 +130,32 @@
      [bytes_per_frame int]
      [bytes_per_sample int]
      [layout_error int])]
+
   [SoundIoSampleRateRange
    (struct
     [min int]
     [max int])]
+
   [SoundIoOsMirroredMemory
    (struct
     [capacity size_t]
     [address (* char)]
     [priv void*])]
+
   [SoundIoAtomicLong long]
+
   [SoundIoRingBuffer
    (struct
     [mem SoundIoOsMirroredMemory]
     [write_offset SoundIoAtomicLong]
     [read_offset SoundIoAtomicLong]
     [capacity int])]
+
   ;; </ftype-structs>
+
 )
 ;; </ftypes>
+
 (define-syntax (define-foreign-procedure stx)
   (syntax-case stx ()
     [(_ [name args result])
@@ -150,6 +168,7 @@
      #'(begin
          (define-foreign-procedure e)
          ...)]))
+
 (define-foreign-procedure
   [soundio_backend_count ((* SoundIo)) int]
   [soundio_backend_name (SoundIoBackend) int]
@@ -230,4 +249,6 @@
   [soundio_version_string () string]
   [soundio_wait_events ((* SoundIo)) void]
   [soundio_wakeup ((* SoundIo)) void])
+
 ;; </ffi>
+

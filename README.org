@@ -4,7 +4,7 @@
 
   Status: FFI is complete, high-level wrappers are alpha.
 
-  Dependency versions: libsoundio 1.1.0 and Chez Scheme 9.5.1
+  Dependency versions: libsoundio 2.0.0 and Chez Scheme 9.5.5.5
 
   NOTE: Threaded Chez Scheme crashes with SIGILL on MacOS and with SIGSEGV on
   Linux if =write_callback= calls Scheme code. Please use provided ring buffer
@@ -27,7 +27,7 @@
   (define init-ffi
     (case (machine-type)
       [(i3nt ti3nt a6nt ta6nt) (load-shared-object "libsoundio.dll")]
-      [(i3osx ti3osx a6osx ta6osx) (load-shared-object "libsoundio.dylib")]
+      [(i3osx ti3osx a6osx ta6osx tarm64osx) (load-shared-object "libsoundio.dylib")]
       [(i3le ti3le a6le ta6le) (load-shared-object "libsoundio.so")]
       [else (error "soundio"
                    "don't know how libsoundio shared library file is called on this machine-type"
@@ -177,6 +177,7 @@
      [sample_rate int]
      [layout SoundIoChannelLayout]
      [software_latency double]
+     [volume float]
      [userdata void*]
      [write_callback (* WriteCallback)]
      [underflow_callback (* UnderflowCallback)]
@@ -393,7 +394,7 @@
   ;; <bridge-paths>
   (define bridge-source-filename "bridge.c")
   (define bridge-library-filename "libbridge.so")
-  (define scheme-headers-path (format "/usr/local/lib/csv9.5.1/~a" (machine-type)))
+  (define scheme-headers-path (format "/usr/local/lib/csv9.5.5.5/~a" (machine-type)))
   ;; </bridge-paths>
 #+END_SRC
 
@@ -412,7 +413,7 @@
        (system (format "link -dll -out:~a ~a.obj"
                        bridge-library-filename
                        bridge-source-filename)))]
-    [(i3osx ti3osx a6osx ta6osx)
+    [(i3osx ti3osx a6osx ta6osx tarm64osx)
      (system (format "cc -O3 -dynamiclib -Wl,-undefined -Wl,dynamic_lookup -I~a -lsoundio -o ~a ~a"
                      scheme-headers-path
                      bridge-library-filename

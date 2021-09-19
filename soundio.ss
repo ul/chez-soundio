@@ -13,8 +13,9 @@
   ;; <bridge-paths>
   (define bridge-source-filename "bridge.c")
   (define bridge-library-filename "libbridge.so")
-  (define scheme-headers-path (format "/usr/local/lib/csv9.5.1/~a" (machine-type)))
+  (define scheme-headers-path (format "/usr/local/lib/csv9.5.5.5/~a" (machine-type)))
   ;; </bridge-paths>
+
   (define init-bridge
     (begin
       (unless (file-exists? bridge-library-filename)
@@ -29,7 +30,7 @@
              (system (format "link -dll -out:~a ~a.obj"
                              bridge-library-filename
                              bridge-source-filename)))]
-          [(i3osx ti3osx a6osx ta6osx)
+          [(i3osx ti3osx a6osx ta6osx tarm64osx)
            (system (format "cc -O3 -dynamiclib -Wl,-undefined -Wl,dynamic_lookup -I~a -lsoundio -o ~a ~a"
                            scheme-headers-path
                            bridge-library-filename
@@ -43,14 +44,17 @@
                        "don't know how to build bridge shared library on this machine-type"
                        (machine-type))])
         ;; </build-bridge>
+
         )
       (load-shared-object bridge-library-filename)))
   ;; </build-bridge>
+
   ;; <bridge-ffi>
   (define-foreign-procedure
     [bridge_outstream_attach_ring_buffer ((* SoundIoOutStream) (* SoundIoRingBuffer)) void]
     [usleep (long #|seconds|# long #|microseconds|#) void])
   ;; </bridge-ffi>
+
   ;; <sound-out-record>
   (define-record-type sound-out
     (fields stream
@@ -58,6 +62,7 @@
             (mutable write-callback)
             (mutable write-thread)))
   ;; </sound-out-record>
+
   ;; <open-default-out-stream>
   (define (open-default-out-stream write-callback)
     ;; <try-create-connect-sio>
@@ -104,18 +109,25 @@
                   (printf "Buffer:\t\t~s\r\n" buffer-size)
                   (make-sound-out out-stream ring-buffer write-callback #f)
                   ;; </make-sound-out>
+
                   )
                 ;; </attach-buffer-to-stream>
+
                 )
               ;; </try-open-stream>
+
               )
             ;; </try-create-stream>
+
             ))
         ;; </try-create-device>
+
         ))
     ;; </try-create-connect-sio>
+
     )
   ;; </open-default-out-stream>
+
   ;; <start-out-stream>
   (define (start-out-stream sound-out)
     (let* ([frame-size (ftype-sizeof float)]
@@ -157,11 +169,13 @@
                      )))))))
       (soundio_outstream_start out-stream)))
   ;; </start-out-stream>
+
   ;; <stop-out-stream>
   (define (stop-out-stream sound-out)
     (sound-out-write-thread-set! sound-out #f)
     (soundio_outstream_pause (sound-out-stream sound-out) #t))
   ;; </stop-out-stream>
+
   ;; <teardown-out-stream>
   (define (teardown-out-stream sound-out)
     (let* ([stream (sound-out-stream sound-out)]
@@ -173,17 +187,21 @@
       (soundio_device_unref device)
       (soundio_destroy soundio)))
   ;; </teardown-out-stream>
+
   ;; <channel-count>
   (define (channel-count sound-out)
     (ftype-ref SoundIoOutStream
                (layout channel_count)
                (sound-out-stream sound-out)))
   ;; </channel-count>
+
   ;; <sample-rate>
   (define (sample-rate sound-out)
     (ftype-ref SoundIoOutStream
                (sample_rate)
                (sound-out-stream sound-out)))
   ;; </sample-rate>
+
   ;; </high-level-wrapper>
+
 )
